@@ -2,10 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor, fireEvent } from '@testing-library/react'
 import Admin from './Admin'
 import { supabase } from '@/lib/supabase'
+import { crearUsuario } from '@/lib/usuarios'
 import { useAuth } from '@/context/AuthContext'
 
 vi.mock('@/lib/supabase', () => ({
   supabase: { from: vi.fn() },
+}))
+
+vi.mock('@/lib/usuarios', () => ({
+  crearUsuario: vi.fn(),
 }))
 
 vi.mock('@/context/AuthContext', () => ({
@@ -78,5 +83,65 @@ describe('cambiarRol', () => {
     await waitFor(() => expect(mockEq).toHaveBeenCalled())
     expect(screen.queryByText('Rol actualizado correctamente.')).toBeNull()
     expect(screen.getByRole('combobox').value).toBe('capital_humano')
+  })
+})
+
+// ── cambiarActivo ────────────────────────────────────────────
+
+describe('cambiarActivo', () => {
+  it('deactivates another user and shows the inactive badge', async () => {
+    mockFetchPerfiles([{ id: OTHER_ID, nombre: 'Juan López', rol: 'capital_humano', activo: true }])
+    const { mockUpd, mockEq } = setupUpdate()
+
+    render(<Admin />)
+    await screen.findByText('Juan López')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
+
+    await screen.findByText('Inactivo')
+    expect(mockUpd).toHaveBeenCalledWith({ activo: false })
+    expect(mockEq).toHaveBeenCalledWith('id', OTHER_ID)
+    expect(screen.getByRole('button', { name: 'Activar' })).not.toBeNull()
+  })
+
+  it('blocks deactivating your own account', async () => {
+    mockFetchPerfiles([{ id: SELF_ID, nombre: 'Ana García', rol: 'sig', activo: true }])
+
+    render(<Admin />)
+    await screen.findByText('Ana García')
+
+    expect(screen.getByRole('button', { name: 'Desactivar' }).disabled).toBe(true)
+  })
+})
+
+// ── crear usuario ────────────────────────────────────────────
+
+describe('crear usuario', () => {
+  it('creates a user from the admin form and shows success toast', async () => {
+    mockFetchPerfiles([])
+    mockFetchPerfiles([{ id: 'uid-new', nombre: 'María Pérez', rol: 'capital_humano' }])
+    crearUsuario.mockResolvedValue({
+      id: 'uid-new',
+      nombre: 'María Pérez',
+      cuentaNueva: true,
+    })
+
+    render(<Admin />)
+    await screen.findByText('Sin usuarios registrados.')
+
+    fireEvent.click(screen.getByRole('button', { name: /agregar usuario/i }))
+
+    fireEvent.change(screen.getByLabelText('Nombre completo'), { target: { value: 'María Pérez' } })
+    fireEvent.change(screen.getByLabelText('Correo corporativo'), { target: { value: 'maria@empresa.com' } })
+    fireEvent.change(screen.getByLabelText('Contraseña temporal'), { target: { value: 'temporal123' } })
+    fireEvent.click(screen.getByRole('button', { name: /crear usuario/i }))
+
+    await screen.findByText('Usuario María Pérez creado. Ya puede iniciar sesión.')
+    expect(crearUsuario).toHaveBeenCalledWith({
+      nombre: 'María Pérez',
+      email: 'maria@empresa.com',
+      password: 'temporal123',
+      rol: 'capital_humano',
+    })
   })
 })

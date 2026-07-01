@@ -19,6 +19,8 @@ export default function RutaProtegida({ children, roles }) {
 
   if (!perfil) return <Navigate to="/login" replace />
 
+  if (perfil.activo === false) return <Navigate to="/sin-acceso" replace />
+
   if (roles && perfil && !roles.includes(perfil.rol)) {
     return <Navigate to="/sin-acceso" replace />
   }

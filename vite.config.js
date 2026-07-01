@@ -17,5 +17,8 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
   },
+  build: {
+    assetsInlineLimit: 0,
+  },
 })
  

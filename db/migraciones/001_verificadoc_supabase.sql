@@ -241,4 +241,6 @@ ON CONFLICT (ruc) DO NOTHING;
 -- Siguiente paso: crear usuarios en Supabase Auth →
 --   Authentication → Users → Add user
 --   Luego insertar en usuarios_perfil con su UUID y rol
+--
+-- Correlativo global (TIPO-0001-AÑO): ejecutar también 005_correlativo_global.sql
 -- ============================================================

@@ -45,7 +45,7 @@ export function AuthProvider({ children }) {
   async function fetchPerfil(userId) {
     const { data, error } = await supabase
       .from('usuarios_perfil')
-      .select('rol, nombre')
+      .select('rol, nombre, activo')
       .eq('id', userId)
       .single()
     if (error && error.code !== 'PGRST116') {

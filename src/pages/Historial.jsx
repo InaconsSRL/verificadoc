@@ -6,8 +6,10 @@ import { Download, ExternalLink, Ban, RefreshCw, Search, X } from 'lucide-react'
 import { fmt } from '@/lib/utils'
 import { useToast, Toast } from '@/hooks/useToast'
 import { useEmpresas } from '@/hooks/useEmpresas'
+import { useAuth } from '@/context/AuthContext'
 import Spinner from '@/components/Spinner'
 import PageHeader from '@/components/PageHeader'
+import Estadisticas from '@/components/Estadisticas'
 
 const TIPO_COLOR = {
   CT: { bg: '#dbeafe', color: '#1e40af' },
@@ -79,6 +81,12 @@ function ModalAnular({ doc, onConfirm, onCancel }) {
 // ── Página ───────────────────────────────────────────────────
 const FILTROS_VACIO = { empresa_id: '', tipo: '', estado: '', nombre: '', fecha_emision: '' }
 
+function diaSiguiente(fechaISO) {
+  const d = new Date(fechaISO + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + 1)
+  return d.toISOString().split('T')[0]
+}
+
 export default function Historial() {
   const [docs,        setDocs]        = useState([])
   const [loading,     setLoading]     = useState(true)
@@ -89,6 +97,11 @@ export default function Historial() {
   const nombreDebounce = useRef(null)
   const { toast, showToast } = useToast()
   const { empresas } = useEmpresas()
+  const { perfil } = useAuth()
+
+  // Gerencia consulta en modo solo lectura: puede ver KPIs, tabla y
+  // verificador, pero no anular (el RPC igual lo rechaza en el servidor).
+  const soloLectura = perfil?.rol === 'gerencia'
 
   useEffect(() => {
     fetchDocs()
@@ -105,7 +118,7 @@ export default function Historial() {
         fecha_ingreso, fecha_cese, fecha_falta,
         descripcion_falta, dias_suspension,
         fecha_inicio_suspension, fecha_limite_descargos, motivo_cese,
-        empresa_id,
+        campos_extra, empresa_id,
         empresas ( id, razon_social, ruc, prefijo )
       `)
       .order('fecha_emision', { ascending: false })
@@ -115,7 +128,11 @@ export default function Historial() {
     if (f.tipo)         q = q.eq('tipo', f.tipo)
     if (f.estado)       q = q.eq('estado', f.estado)
     if (f.nombre)       q = q.ilike('nombre_trabajador', `%${f.nombre}%`)
-    if (f.fecha_emision) q = q.eq('fecha_emision', f.fecha_emision)
+    if (f.fecha_emision) {
+      // fecha_emision es timestamptz: filtrar por el rango del día
+      q = q.gte('fecha_emision', f.fecha_emision)
+           .lt('fecha_emision', diaSiguiente(f.fecha_emision))
+    }
 
     const { data, error } = await q
     if (error) {
@@ -153,10 +170,10 @@ export default function Historial() {
   }
 
   async function confirmarAnulacion(id, motivo) {
+    // RPC con auditoría: registra anulado_por y anulado_en, y solo
+    // permite la transición activo → anulado (documentos inmutables).
     const { error } = await supabase
-      .from('documentos')
-      .update({ estado: 'anulado', motivo_anulacion: motivo || null })
-      .eq('id', id)
+      .rpc('anular_documento', { p_id: id, p_motivo: motivo || null })
     if (error) {
       showToast('No se pudo anular el documento: ' + error.message, true)
       return
@@ -168,8 +185,20 @@ export default function Historial() {
 
   async function descargarDoc(doc) {
     setDescargando(doc.id)
-    try { await generarDocx(doc, doc.empresas) }
-    finally { setDescargando(null) }
+    try {
+      // Los textos editados al emitir viven en campos_extra: pasarlos
+      // para que la re-descarga sea idéntica al documento original.
+      await generarDocx(doc, doc.empresas, {
+        cuerpoOverride:     doc.campos_extra?.cuerpo,
+        lugarFechaOverride: doc.campos_extra?.lugar_fecha,
+        observaciones:      doc.campos_extra?.observaciones,
+      })
+    } catch (err) {
+      console.warn('Error al generar Word:', err)
+      showToast('No se pudo generar el archivo Word.', true)
+    } finally {
+      setDescargando(null)
+    }
   }
 
   const tienesFiltros = Object.values(filtros).some(Boolean) || nombreInput.length > 0
@@ -191,6 +220,8 @@ export default function Historial() {
           <RefreshCw size={14} /> Actualizar
         </button>
       </PageHeader>
+
+      <Estadisticas />
 
       <div className="card filters-panel">
         <div className="filters-row">
@@ -309,7 +340,7 @@ export default function Historial() {
                               : <Download size={12} />
                             }
                           </button>
-                          {doc.estado === 'activo' && (
+                          {doc.estado === 'activo' && !soloLectura && (
                             <button type="button" className="btn btn-sm btn-danger"
                               onClick={() => setAnulando(doc)}
                               title="Anular documento">

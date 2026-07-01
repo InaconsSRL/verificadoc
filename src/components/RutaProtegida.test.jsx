@@ -70,6 +70,21 @@ describe('role enforcement', () => {
   })
 })
 
+// ── inactive user ────────────────────────────────────────────
+
+describe('inactive user', () => {
+  it('redirects to /sin-acceso when the perfil is deactivated', () => {
+    renderRoute({ ...SETTLED, user: { id: 'u1' }, perfil: { rol: 'sig', activo: false } })
+    screen.getByText('Sin acceso')
+    expect(screen.queryByText('Protected content')).toBeNull()
+  })
+
+  it('renders children when activo is not present (perfiles previos a la migración)', () => {
+    renderRoute({ ...SETTLED, user: { id: 'u1' }, perfil: { rol: 'sig' } })
+    screen.getByText('Protected content')
+  })
+})
+
 // ── loading ──────────────────────────────────────────────────
 
 describe('loading', () => {

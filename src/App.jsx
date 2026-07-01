@@ -11,7 +11,6 @@ import ForgotPassword from '@/pages/ForgotPassword'
 import ResetPassword from '@/pages/ResetPassword'
 import Emitir        from '@/pages/Emitir'
 import Historial     from '@/pages/Historial'
-import Reportes      from '@/pages/Reportes'
 import Admin         from '@/pages/Admin'
 import Verificar     from '@/pages/Verificar'
 import SinAcceso     from '@/pages/SinAcceso'
@@ -59,17 +58,16 @@ export default function App() {
               </RutaProtegida>
             } />
 
+            {/* Historial incluye las estadísticas (antes módulo Reportes);
+                gerencia entra en modo solo lectura */}
             <Route path="/historial" element={
-              <RutaProtegida roles={['capital_humano', 'sig']}>
+              <RutaProtegida roles={['capital_humano', 'gerencia', 'sig']}>
                 <Historial />
               </RutaProtegida>
             } />
 
-            <Route path="/reportes" element={
-              <RutaProtegida roles={['gerencia', 'sig']}>
-                <Reportes />
-              </RutaProtegida>
-            } />
+            {/* Compatibilidad con enlaces guardados al módulo anterior */}
+            <Route path="/reportes" element={<Navigate to="/historial" replace />} />
 
             <Route path="/admin" element={
               <RutaProtegida roles={['sig']}>

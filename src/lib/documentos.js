@@ -67,7 +67,7 @@ export const ROLES = [
   { value: 'sig',            label: 'SIG' },
 ]
 
-// Referencia local de empresas (para correlativo offline y docx)
+// Referencia local de empresas (datos de cabecera en docx)
 export const EMPRESAS_REF = {
   'INACONS S.R.L.': { prefijo: 'INS', ruc: '20568587767' },
   'VELIMAQ':         { prefijo: 'VLM', ruc: '20605665269' },

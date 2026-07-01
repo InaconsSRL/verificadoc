@@ -44,31 +44,24 @@ export default function Verificar() {
   }, [codigo])
 
   async function buscarDocumento() {
-    const isUUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(codigo)
+    // RPC de búsqueda por código exacto: no permite listar documentos
+    // y devuelve solo columnas públicas + razón social y RUC.
+    const { data, error: rpcErr } = await supabase
+      .rpc('verificar_documento', { p_codigo: codigo })
 
-    const { data: docData, error: docErr } = await supabase
-      .from('documentos_publicos')
-      .select('id, correlativo, tipo, estado, nombre_trabajador, cargo, fecha_ingreso, fecha_cese, fecha_emision, empresa_id')
-      .eq(isUUID ? 'id' : 'correlativo', codigo)
-      .single()
-
-    if (docErr || !docData) {
+    const docData = Array.isArray(data) ? data[0] : data
+    if (rpcErr || !docData) {
       setError(true)
       setFetchDone(true)
       return
     }
 
-    let empresas = null
-    if (docData.empresa_id) {
-      const { data: empData } = await supabase
-        .from('empresas')
-        .select('razon_social, ruc')
-        .eq('id', docData.empresa_id)
-        .single()
-      empresas = empData ?? null
-    }
-
-    setDoc({ ...docData, empresas })
+    setDoc({
+      ...docData,
+      empresas: docData.empresa_razon_social
+        ? { razon_social: docData.empresa_razon_social, ruc: docData.empresa_ruc }
+        : null,
+    })
     setFetchDone(true)
   }
 

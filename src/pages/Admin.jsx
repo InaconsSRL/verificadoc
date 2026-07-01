@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
+import { crearUsuario } from '@/lib/usuarios'
 import { useAuth } from '@/context/AuthContext'
-import { RefreshCw } from 'lucide-react'
+import { RefreshCw, UserPlus } from 'lucide-react'
 import { useToast, Toast } from '@/hooks/useToast'
 import Spinner from '@/components/Spinner'
 import PageHeader from '@/components/PageHeader'
@@ -16,15 +17,15 @@ const ROL_STYLE = {
 const PERMISOS = [
   {
     rol: 'capital_humano',
-    items: ['Emitir documentos', 'Ver historial y descargar'],
+    items: ['Emitir documentos', 'Ver historial con estadísticas y descargar'],
   },
   {
     rol: 'gerencia',
-    items: ['Ver reportes (solo lectura)'],
+    items: ['Ver historial y estadísticas (solo lectura)'],
   },
   {
     rol: 'sig',
-    items: ['Acceso total al sistema', 'Emitir y anular documentos', 'Ver historial y reportes', 'Administrar usuarios'],
+    items: ['Acceso total al sistema', 'Emitir y anular documentos', 'Ver historial y estadísticas', 'Administrar usuarios'],
   },
 ]
 
@@ -44,11 +45,16 @@ function RolBadge({ rol }) {
   )
 }
 
+const FORM_INICIAL = { nombre: '', email: '', password: '', rol: 'capital_humano' }
+
 export default function Admin() {
   const { user }  = useAuth()
   const [perfiles, setPerfiles] = useState([])
   const [loading,  setLoading]  = useState(true)
   const [saving,   setSaving]   = useState(null)
+  const [form,     setForm]     = useState(FORM_INICIAL)
+  const [creando,  setCreando]  = useState(false)
+  const [showForm, setShowForm] = useState(false)
   const { toast, showToast } = useToast()
 
   useEffect(() => { fetchPerfiles() }, [])
@@ -57,10 +63,34 @@ export default function Admin() {
     setLoading(true)
     const { data } = await supabase
       .from('usuarios_perfil')
-      .select('id, nombre, rol')
+      .select('id, nombre, rol, activo')
       .order('nombre')
     setPerfiles(data ?? [])
     setLoading(false)
+  }
+
+  function actualizarForm(campo, valor) {
+    setForm(prev => ({ ...prev, [campo]: valor }))
+  }
+
+  async function handleCrearUsuario(e) {
+    e.preventDefault()
+    setCreando(true)
+    try {
+      const creado = await crearUsuario(form)
+      setForm(FORM_INICIAL)
+      setShowForm(false)
+      await fetchPerfiles()
+      showToast(
+        creado.cuentaNueva
+          ? `Usuario ${creado.nombre} creado. Ya puede iniciar sesión.`
+          : `Perfil asignado a ${creado.nombre}.`,
+      )
+    } catch (err) {
+      showToast(err.message || 'No se pudo crear el usuario.', true)
+    } finally {
+      setCreando(false)
+    }
   }
 
   async function cambiarRol(id, rol) {
@@ -80,6 +110,27 @@ export default function Admin() {
     }
     setPerfiles(prev => prev.map(p => p.id === id ? { ...p, rol } : p))
     showToast('Rol actualizado correctamente.')
+  }
+
+  async function cambiarActivo(id, activo) {
+    if (id === user?.id) {
+      showToast('No puedes desactivar tu propia cuenta.', true)
+      return
+    }
+    setSaving(id)
+    const { error } = await supabase
+      .from('usuarios_perfil')
+      .update({ activo })
+      .eq('id', id)
+    setSaving(null)
+    if (error) {
+      showToast(`No se pudo ${activo ? 'activar' : 'desactivar'} el usuario: ${error.message}`, true)
+      return
+    }
+    setPerfiles(prev => prev.map(p => p.id === id ? { ...p, activo } : p))
+    showToast(activo
+      ? 'Usuario activado: recupera el acceso al sistema.'
+      : 'Usuario desactivado: ya no puede emitir ni consultar documentos.')
   }
 
   function Initials({ nombre }) {
@@ -121,6 +172,89 @@ export default function Admin() {
         })}
       </div>
 
+      {/* Alta de usuario */}
+      <div className="card admin-nuevo-usuario">
+        <div className="admin-nuevo-usuario-head">
+          <div>
+            <p className="admin-nuevo-usuario-title">Nuevo usuario</p>
+            <p className="admin-nuevo-usuario-desc">
+              Crea la cuenta y asigna el rol en un solo paso. Comparte el correo y la contraseña temporal.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="btn btn-primary btn-sm"
+            onClick={() => setShowForm(v => !v)}
+          >
+            <UserPlus size={14} />
+            {showForm ? 'Cancelar' : 'Agregar usuario'}
+          </button>
+        </div>
+
+        {showForm && (
+          <form className="admin-nuevo-usuario-form" onSubmit={handleCrearUsuario}>
+            <div className="field">
+              <label className="label" htmlFor="admin-nombre">Nombre completo</label>
+              <input
+                id="admin-nombre"
+                type="text"
+                className="input"
+                placeholder="María Pérez"
+                value={form.nombre}
+                onChange={e => actualizarForm('nombre', e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="field">
+              <label className="label" htmlFor="admin-email">Correo corporativo</label>
+              <input
+                id="admin-email"
+                type="email"
+                className="input"
+                placeholder="correo@empresa.com"
+                value={form.email}
+                onChange={e => actualizarForm('email', e.target.value)}
+                required
+                autoComplete="off"
+              />
+            </div>
+
+            <div className="field">
+              <label className="label" htmlFor="admin-password">Contraseña temporal</label>
+              <input
+                id="admin-password"
+                type="password"
+                className="input"
+                placeholder="Mínimo 8 caracteres"
+                value={form.password}
+                onChange={e => actualizarForm('password', e.target.value)}
+                required
+                minLength={8}
+                autoComplete="new-password"
+              />
+            </div>
+
+            <div className="field">
+              <label className="label" htmlFor="admin-rol">Rol</label>
+              <select
+                id="admin-rol"
+                className="input"
+                value={form.rol}
+                onChange={e => actualizarForm('rol', e.target.value)}
+                required
+              >
+                {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
+              </select>
+            </div>
+
+            <button type="submit" className="btn btn-primary" disabled={creando}>
+              {creando ? <span className="spinner" /> : 'Crear usuario'}
+            </button>
+          </form>
+        )}
+      </div>
+
       {/* Lista de usuarios */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div style={{
@@ -149,7 +283,8 @@ export default function Admin() {
         ) : (
           <div>
             {perfiles.map((p, i) => {
-              const isMe = p.id === user?.id
+              const isMe     = p.id === user?.id
+              const inactivo = p.activo === false
               return (
                 <div
                   key={p.id}
@@ -159,6 +294,7 @@ export default function Admin() {
                     borderBottom: i < perfiles.length - 1 ? '1px solid #f9fafb' : 'none',
                     background: isMe ? 'rgba(13,31,53,.015)' : '#fff',
                     transition: 'background .1s',
+                    opacity: inactivo ? .55 : 1,
                   }}
                   onMouseEnter={e => !isMe && (e.currentTarget.style.background = '#fafafa')}
                   onMouseLeave={e => !isMe && (e.currentTarget.style.background = '#fff')}
@@ -190,6 +326,14 @@ export default function Admin() {
                           Tú
                         </span>
                       )}
+                      {inactivo && (
+                        <span style={{
+                          fontSize: 10, fontWeight: 600, color: '#991b1b',
+                          background: '#fee2e2', padding: '1px 6px', borderRadius: 99,
+                        }}>
+                          Inactivo
+                        </span>
+                      )}
                     </div>
                     <p style={{ margin: '1px 0 0', fontSize: 11, color: '#9ca3af', fontFamily: 'monospace' }}>
                       {p.id.slice(0, 8)}…
@@ -216,6 +360,20 @@ export default function Admin() {
                     >
                       {ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
                     </select>
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      disabled={isMe || saving === p.id}
+                      onClick={() => cambiarActivo(p.id, inactivo)}
+                      title={inactivo ? 'Reactivar acceso' : 'Desactivar acceso'}
+                      style={{
+                        opacity: isMe ? .45 : 1,
+                        cursor: isMe ? 'not-allowed' : 'pointer',
+                        color: inactivo ? '#065f46' : '#991b1b',
+                      }}
+                    >
+                      {inactivo ? 'Activar' : 'Desactivar'}
+                    </button>
                     {saving === p.id && (
                       <span className="spinner" style={{
                         width: 14, height: 14,

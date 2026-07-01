@@ -1,5 +1,39 @@
 import { describe, it, expect } from 'vitest'
-import { addDiasHabiles } from './utils'
+import { addDiasHabiles, getPngDimensions, logoTransformFromBuffer } from './utils'
+
+/** Construye un ArrayBuffer PNG mínimo con dimensiones IHDR dadas. */
+function makePngBuffer(width, height) {
+  const buf = new ArrayBuffer(24)
+  const view = new DataView(buf)
+  view.setUint32(0, 0x89504e47) // PNG signature
+  view.setUint32(16, width)
+  view.setUint32(20, height)
+  return buf
+}
+
+describe('getPngDimensions', () => {
+  it('reads width and height from IHDR bytes', () => {
+    expect(getPngDimensions(makePngBuffer(200, 80))).toEqual({ width: 200, height: 80 })
+  })
+
+  it('returns null for buffer too short', () => {
+    expect(getPngDimensions(new ArrayBuffer(8))).toBeNull()
+  })
+
+  it('returns null when signature is invalid', () => {
+    expect(getPngDimensions(new ArrayBuffer(24))).toBeNull()
+  })
+})
+
+describe('logoTransformFromBuffer', () => {
+  it('keeps fixed height and scales width proportionally', () => {
+    expect(logoTransformFromBuffer(makePngBuffer(200, 80), 56)).toEqual({ width: 140, height: 56 })
+  })
+
+  it('falls back to 2:1 when dimensions cannot be read', () => {
+    expect(logoTransformFromBuffer(new ArrayBuffer(0), 56)).toEqual({ width: 112, height: 56 })
+  })
+})
 
 describe('addDiasHabiles', () => {
   // ── Happy path ──────────────────────────────────────────────

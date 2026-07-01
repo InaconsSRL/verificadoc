@@ -1,13 +1,13 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresas } from '@/hooks/useEmpresas'
-import { useAuth } from '@/context/AuthContext'
 import { TIPOS_DOCUMENTO, MOTIVOS_CESE, TITULOS } from '@/lib/documentos'
 import { hoy, fmtCorto, getVerifyUrl, addDiasHabiles } from '@/lib/utils'
 import { generarDocx } from '@/lib/generarDocx'
 import QRCode from 'qrcode'
 import { Download, CheckCircle, Eye } from 'lucide-react'
 import { getCuerpoDefault, getLugarFechaDefault } from '@/lib/generarDocx'
+import { getLogoUrl } from '@/lib/logosEmpresa'
 import PageHeader from '@/components/PageHeader'
 import { useToast, Toast } from '@/hooks/useToast'
 
@@ -207,6 +207,7 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
   const dir      = empresa?.direccion?.startsWith('[')    ? null : empresa?.direccion
   const rep      = empresa?.representante?.startsWith('[') ? null : empresa?.representante
   const cargoRep = empresa?.cargo_rep?.startsWith('[')    ? null : empresa?.cargo_rep
+  const logoUrl  = getLogoUrl(empresa)
 
   const area         = campos.area         ?? null
   const tipoContrato = campos.tipo_contrato ?? null
@@ -273,6 +274,13 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
 
           {/* Empresa header */}
           <div style={{ textAlign: 'center', marginBottom: 14 }}>
+            {logoUrl && (
+              <img
+                src={logoUrl}
+                alt=""
+                style={{ height: 52, width: 'auto', objectFit: 'contain', maxWidth: 220, marginBottom: 10 }}
+              />
+            )}
             <div style={{ fontSize: 15, fontWeight: 700, color: '#0D1F35', letterSpacing: '.02em' }}>
               {empresa?.razon_social?.toUpperCase()}
             </div>
@@ -291,15 +299,6 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
               Documento de carácter informativo emitido a solicitud del trabajador
             </div>
           )}
-
-          {/* Control interno placeholder */}
-          <div style={{
-            background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6,
-            padding: '9px 14px', marginBottom: 16, fontSize: 12, color: '#1E40AF',
-          }}>
-            <strong style={{ display: 'block', marginBottom: 3 }}>CONTROL INTERNO</strong>
-            Correlativo y código QR se asignarán automáticamente al confirmar la emisión.
-          </div>
 
           {/* CT/CL: intro + data table */}
           {esCTCL && (
@@ -397,9 +396,21 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
           {/* Firma placeholder */}
           <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 36 }}>
             <div style={{ fontSize: 12, color: '#9CA3AF' }}>___________________________________</div>
-            {rep && <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 5 }}>{rep}</div>}
-            <div style={{ fontSize: 12, color: '#374151', marginTop: rep ? 2 : 5 }}>{empresa?.razon_social}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 5 }}>{empresa?.razon_social}</div>
+            {rep && <div style={{ fontSize: 12, color: '#374151', marginTop: 4 }}>{rep}</div>}
             <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>{cargoRep ?? 'Representante Legal'}</div>
+          </div>
+
+          {/* Control interno al final */}
+          <div style={{
+            background: '#EFF6FF', border: '1px solid #BFDBFE', borderRadius: 6,
+            padding: '9px 14px', marginTop: 24, fontSize: 12, color: '#1E40AF',
+          }}>
+            <strong style={{ display: 'block', marginBottom: 3 }}>CONTROL INTERNO</strong>
+            N.° de documento: <em>Se asignará al confirmar</em>
+            <div style={{ marginTop: 4, fontSize: 11, color: '#3B82F6' }}>
+              Código de verificación y QR se generarán al confirmar la emisión.
+            </div>
           </div>
         </div>
 
@@ -442,7 +453,6 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
 const TRAB_VACIO = { dni: '', nombre: '', cargo: '', fecha_ingreso: '' }
 
 export default function Emitir() {
-  const { user } = useAuth()
   const { toast, showToast } = useToast()
 
   const { empresas } = useEmpresas()
@@ -482,67 +492,66 @@ export default function Emitir() {
     setError('')
     setEmitiendo(true)
     try {
-      const anio = new Date().getFullYear()
-
-      const { data: corrData, error: corrErr } = await supabase
-        .rpc('siguiente_correlativo', { p_empresa_id: empresaId, p_tipo: tipo, p_anio: anio })
-      if (corrErr) throw new Error(`Error al generar correlativo: ${corrErr.message}`)
-
       const fechaLimite = (tipo === 'CP' && campos.fecha_falta)
         ? addDiasHabiles(campos.fecha_falta, 6) : null
 
+      // Se guardan también los textos editados en la vista previa para
+      // que la re-descarga desde Historial reproduzca el documento original.
       const camposExtra = {
         ...(campos.area          ? { area:          campos.area }          : {}),
         ...(campos.tipo_contrato ? { tipo_contrato: campos.tipo_contrato } : {}),
         ...(editables.observaciones?.trim() ? { observaciones: editables.observaciones.trim() } : {}),
+        ...(editables.cuerpo?.trim()        ? { cuerpo:        editables.cuerpo.trim() }        : {}),
+        ...(editables.lugarFecha?.trim()    ? { lugar_fecha:   editables.lugarFecha.trim() }    : {}),
       }
 
-      const { data: docData, error: docErr } = await supabase
-        .from('documentos')
-        .insert({
-          correlativo:             corrData,
-          tipo,
-          estado:                  'activo',
-          empresa_id:              empresaId,
-          dni_trabajador:          trab.dni,
-          nombre_trabajador:       trab.nombre,
-          cargo:                   trab.cargo,
-          fecha_ingreso:           trab.fecha_ingreso || null,
-          fecha_emision:           hoy(),
-          fecha_cese:              campos.fecha_cese              ?? null,
-          motivo_cese:             campos.motivo_cese             ?? null,
-          descripcion_falta:       campos.descripcion_falta       ?? null,
-          fecha_falta:             campos.fecha_falta             ?? null,
-          dias_suspension:         campos.dias_suspension ? parseInt(campos.dias_suspension) : null,
-          fecha_inicio_suspension: campos.fecha_inicio_suspension ?? null,
-          fecha_limite_descargos:  fechaLimite,
-          campos_extra:            Object.keys(camposExtra).length ? camposExtra : null,
-          emitido_por:             user.id,
-        })
-        .select('id, correlativo')
-        .single()
+      // RPC transaccional: genera el correlativo e inserta el documento
+      // en una sola operación (sin huecos de numeración si algo falla).
+      const { data, error: rpcErr } = await supabase.rpc('emitir_documento', {
+        p_empresa_id:              empresaId,
+        p_tipo:                    tipo,
+        p_dni_trabajador:          trab.dni,
+        p_nombre_trabajador:       trab.nombre,
+        p_cargo:                   trab.cargo,
+        p_fecha_ingreso:           trab.fecha_ingreso || null,
+        p_fecha_cese:              campos.fecha_cese              ?? null,
+        p_motivo_cese:             campos.motivo_cese             ?? null,
+        p_fecha_falta:             campos.fecha_falta             ?? null,
+        p_descripcion_falta:       campos.descripcion_falta       ?? null,
+        p_dias_suspension:         campos.dias_suspension ? parseInt(campos.dias_suspension) : null,
+        p_fecha_inicio_suspension: campos.fecha_inicio_suspension ?? null,
+        p_fecha_limite_descargos:  fechaLimite,
+        p_campos_extra:            Object.keys(camposExtra).length ? camposExtra : null,
+      })
 
-      if (docErr) throw new Error(`Error al guardar: ${docErr.message}`)
+      if (rpcErr) throw new Error(`Error al emitir: ${rpcErr.message}`)
+      const docData = Array.isArray(data) ? data[0] : data
+      if (!docData?.id) throw new Error('La emisión no devolvió el documento creado.')
 
       const verifyUrl = getVerifyUrl(docData.id)
       const qr = await QRCode.toDataURL(verifyUrl, { width: 160, margin: 1 })
       setQrDataUrl(qr)
 
-      await generarDocx({
-        ...docData,
-        tipo,
-        nombre_trabajador: trab.nombre,
-        cargo:             trab.cargo,
-        fecha_ingreso:     trab.fecha_ingreso || null,
-        fecha_emision:     hoy(),
-        dni_trabajador:    trab.dni,
-        ...campos,
-        fecha_limite_descargos: fechaLimite,
-      }, empresaSeleccionada, {
-        cuerpoOverride:     editables.cuerpo      || undefined,
-        lugarFechaOverride: editables.lugarFecha  || undefined,
-        observaciones:      editables.observaciones?.trim() || undefined,
-      })
+      try {
+        await generarDocx({
+          ...docData,
+          tipo,
+          nombre_trabajador: trab.nombre,
+          cargo:             trab.cargo,
+          fecha_ingreso:     trab.fecha_ingreso || null,
+          fecha_emision:     hoy(),
+          dni_trabajador:    trab.dni,
+          ...campos,
+          fecha_limite_descargos: fechaLimite,
+        }, empresaSeleccionada, {
+          cuerpoOverride:     editables.cuerpo      || undefined,
+          lugarFechaOverride: editables.lugarFecha  || undefined,
+          observaciones:      editables.observaciones?.trim() || undefined,
+        })
+      } catch (docxErr) {
+        console.warn('No se pudo generar el Word:', docxErr)
+        showToast('Documento registrado. Si el Word no se descargó, descárgalo desde Historial.', true)
+      }
 
       setResultado({ ...docData, verifyUrl })
       setVistaPrevia(false)
@@ -562,6 +571,7 @@ export default function Emitir() {
   }
 
   const empresaSeleccionada = empresas.find(e => e.id === empresaId)
+  const logoEmpresa         = empresaSeleccionada ? getLogoUrl(empresaSeleccionada) : null
   const listo = empresaId && tipo
   const dniValido = /^\d{8}$/.test(trab.dni)
 
@@ -683,15 +693,17 @@ export default function Emitir() {
                   padding: '.5rem .75rem', background: 'var(--gray-50)',
                   borderRadius: 8, marginBottom: '1rem', fontSize: 12,
                   color: 'var(--gray-600)', border: '1px solid var(--gray-100)',
-                  display: 'flex', alignItems: 'center', gap: 8,
+                  display: 'flex', alignItems: 'center', gap: 10,
                 }}>
+                  {logoEmpresa && (
+                    <img
+                      src={logoEmpresa}
+                      alt=""
+                      style={{ height: 28, width: 'auto', objectFit: 'contain', maxWidth: 120, flexShrink: 0 }}
+                    />
+                  )}
                   <strong style={{ color: 'var(--navy)' }}>{empresaSeleccionada.razon_social}</strong>
                   <span>RUC {empresaSeleccionada.ruc}</span>
-                  {empresaSeleccionada.prefijo && (
-                    <span style={{ background: 'var(--navy)', color: '#fff', padding: '1px 6px', borderRadius: 4, fontSize: 10 }}>
-                      {empresaSeleccionada.prefijo}
-                    </span>
-                  )}
                 </div>
               )}
 

@@ -6,7 +6,8 @@ import {
 } from 'docx'
 import QRCode from 'qrcode'
 import { MOTIVOS_CESE, TITULOS } from './documentos'
-import { fmtCorto, getVerifyUrl, addDiasHabiles } from './utils'
+import { getLogoArrayBuffer } from './logosEmpresa'
+import { fmtCorto, getVerifyUrl, addDiasHabiles, decodePngDataUrl, logoTransformFromBuffer } from './utils'
 
 const NAVY  = '0D1F35'
 const BLUE  = '3A6B8A'
@@ -108,8 +109,7 @@ async function getQRArrayBuffer(url) {
     width: 200, margin: 1,
     color: { dark: '#0D1F35', light: '#FFFFFF' },
   })
-  const res = await fetch(dataUrl)
-  return await res.arrayBuffer()
+  return decodePngDataUrl(dataUrl)
 }
 
 // ── Empresa field validators ────────────────────────────────
@@ -128,13 +128,28 @@ function getCargoRep(empresa) {
 
 // ── Shared building blocks ──────────────────────────────────
 
-function buildHeaderEmpresa(empresa) {
+function buildHeaderEmpresa(empresa, logoBuf = null) {
   const nombre  = empresa?.razon_social?.toUpperCase() ?? ''
   const ruc     = empresa?.ruc ?? '—'
   const dir     = getDir(empresa)
   const infoLine = ['RUC ' + ruc, dir].filter(Boolean).join(' • ')
 
-  return [
+  const blocks = []
+
+  if (logoBuf) {
+    const transform = logoTransformFromBuffer(logoBuf)
+    blocks.push(new Paragraph({
+      children: [new ImageRun({
+        data: logoBuf,
+        transformation: transform,
+        type: 'png',
+      })],
+      alignment: AlignmentType.CENTER,
+      spacing: { after: 80 },
+    }))
+  }
+
+  blocks.push(
     new Paragraph({
       children: [tbold(nombre, { size: 28, color: NAVY })],
       alignment: AlignmentType.CENTER,
@@ -146,18 +161,18 @@ function buildHeaderEmpresa(empresa) {
       spacing: { after: 100 },
     }),
     hrLine(),
-  ]
+  )
+
+  return blocks
 }
 
-function buildControlInterno(doc, qrBuf, tipo) {
-  const label   = tipo === 'CT' ? 'certificado' : 'constancia'
+function buildControlInterno(doc, qrBuf) {
   const verCode = (doc.id ?? '').slice(0, 8).toUpperCase()
 
   return new Table({
     width: { size: 100, type: WidthType.PERCENTAGE },
     rows: [new TableRow({
       children: [
-        // Left: control info
         new TableCell({
           width:  { size: 70, type: WidthType.PERCENTAGE },
           borders: thinBorder(),
@@ -170,7 +185,7 @@ function buildControlInterno(doc, qrBuf, tipo) {
             }),
             new Paragraph({
               children: [
-                tbold(`N.° de ${label}: `, { size: 18 }),
+                tbold('N.° de documento: ', { size: 18 }),
                 tr(doc.correlativo ?? '—', { size: 18, color: BLUE, font: 'Courier New' }),
               ],
               spacing: { after: 60 },
@@ -248,31 +263,26 @@ function buildFirmaBlock(empresa) {
       children: [tr('___________________________________')],
       spacing: { after: 60 },
     }),
+    new Paragraph({
+      children: [tbold(nombre, { size: 20 })],
+      spacing: { after: 40 },
+    }),
     ...(rep ? [new Paragraph({
-      children: [tbold(rep, { size: 20 })],
+      children: [tr(rep, { size: 20 })],
       spacing: { after: 40 },
     })] : []),
     new Paragraph({
-      children: [tr(nombre, { size: 20 })],
-      spacing: { after: 40 },
-    }),
-    new Paragraph({
-      children: [tr(cargoRep ?? 'Representante Legal', { size: 18, color: GRAY })],
+      children: [tr(cargoRep ?? 'Representante', { size: 18, color: GRAY })],
       spacing: { after: 40 },
     }),
   ]
 }
 
-function buildPieDocumento() {
+function buildDocumentFooter(doc, qrBuf, empresa) {
   return [
-    hrLine(),
-    new Paragraph({
-      children: [tr(
-        'Documento de control interno – la autenticidad se valida mediante el código de verificación y el QR.',
-        { size: 16, color: GRAY, italics: true },
-      )],
-      alignment: AlignmentType.CENTER,
-    }),
+    ...buildFirmaBlock(empresa),
+    new Paragraph({ spacing: { before: 400, after: 200 } }),
+    buildControlInterno(doc, qrBuf),
   ]
 }
 
@@ -312,8 +322,8 @@ export function getLugarFechaDefault(fecha) {
   return fmtLugarFecha(fecha)
 }
 
-// ── Shared tail: cuerpo → fecha → observaciones → firma ─────
-function buildTailSection({ cuerpoOverride, lugarFechaOverride, observaciones }, defaultParagraphs, empresa, fechaEmision) {
+// ── Shared body: cuerpo → fecha → observaciones ─────────────
+function buildBodySection({ cuerpoOverride, lugarFechaOverride, observaciones }, defaultParagraphs, fechaEmision) {
   return [
     ...(cuerpoOverride
       ? cuerpoOverride.split('\n\n').filter(Boolean).map(p => pr([tr(p)]))
@@ -326,15 +336,12 @@ function buildTailSection({ cuerpoOverride, lugarFechaOverride, observaciones },
       new Paragraph({ spacing: { after: 100 } }),
       pr([tr(observaciones.trim())]),
     ] : []),
-    ...buildFirmaBlock(empresa),
   ]
 }
 
 // ── CT ──────────────────────────────────────────────────────
-function buildChildrenCT(doc, empresa, qrBuf, extras = {}) {
+function buildChildrenCT(doc, empresa, qrBuf, extras = {}, logoBuf = null) {
   const { cuerpoOverride, lugarFechaOverride, observaciones } = extras
-  const area   = doc.area || doc.campos_extra?.area || null
-  const motivo = MOTIVOS_CESE.find(m => m.value === doc.motivo_cese)?.label ?? doc.motivo_cese ?? '—'
   const tiempo = calcTiempoServicios(doc.fecha_ingreso, doc.fecha_cese)
   const ruc    = empresa?.ruc ?? '—'
   const dir    = getDir(empresa)
@@ -343,11 +350,9 @@ function buildChildrenCT(doc, empresa, qrBuf, extras = {}) {
     ['Trabajador',          doc.nombre_trabajador],
     ['Documento (DNI)',     doc.dni_trabajador],
     ['Cargo desempeñado',   doc.cargo],
-    ...(area ? [['Área / unidad', area]] : []),
     ['Fecha de ingreso',    fmtCorto(doc.fecha_ingreso)],
     ['Fecha de cese',       fmtCorto(doc.fecha_cese)],
     ['Tiempo de servicios', tiempo],
-    ['Motivo de cese',      motivo],
   ]
 
   const intro = [
@@ -360,7 +365,7 @@ function buildChildrenCT(doc, empresa, qrBuf, extras = {}) {
   ]
 
   return [
-    ...buildHeaderEmpresa(empresa),
+    ...buildHeaderEmpresa(empresa, logoBuf),
 
     new Paragraph({
       children: [tbold('CERTIFICADO DE TRABAJO', { size: 28, color: NAVY })],
@@ -368,37 +373,31 @@ function buildChildrenCT(doc, empresa, qrBuf, extras = {}) {
       spacing: { before: 280, after: 240 },
     }),
 
-    buildControlInterno(doc, qrBuf, 'CT'),
-    new Paragraph({ spacing: { after: 280 } }),
-
     pr(intro),
     new Paragraph({ spacing: { after: 120 } }),
 
     buildTablaData(filas),
     new Paragraph({ spacing: { after: 280 } }),
 
-    ...buildTailSection(extras, [pr([tr(
+    ...buildBodySection(extras, [pr([tr(
       'Se expide el presente certificado a solicitud del interesado y para los fines que estime conveniente, ' +
       'dentro del plazo de ley. El presente documento se limita a constatar hechos laborales y no contiene ' +
       'apreciaciones sobre la conducta o el desempeño del trabajador.',
-    )])], empresa, doc.fecha_emision),
-    ...buildPieDocumento(),
+    )])], doc.fecha_emision),
+    ...buildDocumentFooter(doc, qrBuf, empresa),
   ]
 }
 
 // ── CL ──────────────────────────────────────────────────────
-function buildChildrenCL(doc, empresa, qrBuf, extras = {}) {
+function buildChildrenCL(doc, empresa, qrBuf, extras = {}, logoBuf = null) {
   const { cuerpoOverride, lugarFechaOverride, observaciones } = extras
-  const area          = doc.area || doc.campos_extra?.area || null
   const tipoContrato  = doc.tipo_contrato || doc.campos_extra?.tipo_contrato || null
   const ruc           = empresa?.ruc ?? '—'
-  const dir           = getDir(empresa)
 
   const filas = [
     ['Trabajador',          doc.nombre_trabajador],
     ['Documento (DNI)',     doc.dni_trabajador],
     ['Cargo actual',        doc.cargo],
-    ...(area ? [['Área / unidad', area]] : []),
     ['Fecha de ingreso',    fmtCorto(doc.fecha_ingreso)],
     ...(tipoContrato ? [['Tipo de contrato', tipoContrato]] : []),
     ['Situación del vínculo', 'Activo'],
@@ -406,15 +405,14 @@ function buildChildrenCL(doc, empresa, qrBuf, extras = {}) {
 
   const intro = [
     tbold(empresa?.razon_social ?? ''),
-    tr(`, con RUC N.° ${ruc}`),
-    ...(dir ? [tr(` y domicilio en ${dir},`)] : [tr(',')]),
+    tr(`, con RUC N.° ${ruc},`),
     tr(' deja '),
     tbold('CONSTANCIA'),
     tr(' de que la persona cuyos datos se detallan mantiene vínculo laboral vigente con nuestra organización a la fecha de emisión:'),
   ]
 
   return [
-    ...buildHeaderEmpresa(empresa),
+    ...buildHeaderEmpresa(empresa, logoBuf),
 
     new Paragraph({
       children: [tbold('CONSTANCIA DE TRABAJO', { size: 28, color: NAVY })],
@@ -430,20 +428,17 @@ function buildChildrenCL(doc, empresa, qrBuf, extras = {}) {
       spacing: { after: 220 },
     }),
 
-    buildControlInterno(doc, qrBuf, 'CL'),
-    new Paragraph({ spacing: { after: 280 } }),
-
     pr(intro),
     new Paragraph({ spacing: { after: 120 } }),
 
     buildTablaData(filas),
     new Paragraph({ spacing: { after: 280 } }),
 
-    ...buildTailSection(extras, [pr([tr(
+    ...buildBodySection(extras, [pr([tr(
       'Se expide la presente constancia a solicitud del interesado, para los trámites administrativos ' +
       'o personales que estime pertinentes, sin que ello implique el término de la relación laboral.',
-    )])], empresa, doc.fecha_emision),
-    ...buildPieDocumento(),
+    )])], doc.fecha_emision),
+    ...buildDocumentFooter(doc, qrBuf, empresa),
   ]
 }
 
@@ -510,13 +505,13 @@ function buildCuerpoOtros(tipo, doc, empresa) {
   }
 }
 
-function buildChildrenOtros(doc, empresa, qrBuf, verifyUrl, extras = {}) {
+function buildChildrenOtros(doc, empresa, qrBuf, extras = {}, logoBuf = null) {
   const { cuerpoOverride, lugarFechaOverride, observaciones } = extras
   const titulo = TITULOS[doc.tipo] ?? doc.tipo
   const cuerpo = buildCuerpoOtros(doc.tipo, doc, empresa)
 
   return [
-    ...buildHeaderEmpresa(empresa),
+    ...buildHeaderEmpresa(empresa, logoBuf),
 
     new Paragraph({
       children: [tbold(titulo.toUpperCase(), { size: 28, color: NAVY })],
@@ -549,24 +544,8 @@ function buildChildrenOtros(doc, empresa, qrBuf, verifyUrl, extras = {}) {
 
     new Paragraph({ spacing: { after: 280 } }),
 
-    ...buildTailSection(extras, cuerpo, empresa, doc.fecha_emision),
-
-    hrLine(),
-
-    new Paragraph({
-      children: [
-        tr('Verificar autenticidad en: ', { size: 16, color: GRAY }),
-        tr(verifyUrl, { size: 16, color: BLUE }),
-      ],
-      spacing: { after: 100 },
-    }),
-    new Paragraph({
-      children: [new ImageRun({ data: qrBuf, transformation: { width: 80, height: 80 }, type: 'png' })],
-    }),
-    new Paragraph({
-      children: [tr(doc.correlativo, { size: 16, color: GRAY, font: 'Courier New' })],
-      spacing: { before: 60 },
-    }),
+    ...buildBodySection(extras, cuerpo, doc.fecha_emision),
+    ...buildDocumentFooter(doc, qrBuf, empresa),
   ]
 }
 
@@ -574,14 +553,20 @@ function buildChildrenOtros(doc, empresa, qrBuf, verifyUrl, extras = {}) {
 export async function generarDocx(doc, empresa, extras = {}) {
   const verifyUrl = getVerifyUrl(doc.id)
   const qrBuf     = await getQRArrayBuffer(verifyUrl)
+  let logoBuf     = null
+  try {
+    logoBuf = await getLogoArrayBuffer(empresa)
+  } catch {
+    logoBuf = null
+  }
 
   let children
   if (doc.tipo === 'CT') {
-    children = buildChildrenCT(doc, empresa, qrBuf, extras)
+    children = buildChildrenCT(doc, empresa, qrBuf, extras, logoBuf)
   } else if (doc.tipo === 'CL') {
-    children = buildChildrenCL(doc, empresa, qrBuf, extras)
+    children = buildChildrenCL(doc, empresa, qrBuf, extras, logoBuf)
   } else {
-    children = buildChildrenOtros(doc, empresa, qrBuf, verifyUrl, extras)
+    children = buildChildrenOtros(doc, empresa, qrBuf, extras, logoBuf)
   }
 
   const wordDoc = new Document({

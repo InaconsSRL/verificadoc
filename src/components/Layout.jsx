@@ -1,13 +1,12 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, FileText, Clock, BarChart2, Settings } from 'lucide-react'
+import { LogOut, FileText, Clock, Settings } from 'lucide-react'
 import { ROL_LABEL } from '@/lib/documentos'
 import BrandLogo from '@/components/BrandLogo'
 
 const NAV_LINKS = [
   { to: '/emitir',    label: 'Emitir',    icon: FileText,  roles: ['capital_humano', 'sig'] },
-  { to: '/historial', label: 'Historial', icon: Clock,     roles: ['capital_humano', 'sig'] },
-  { to: '/reportes',  label: 'Reportes',  icon: BarChart2, roles: ['gerencia', 'sig'] },
+  { to: '/historial', label: 'Historial', icon: Clock,     roles: ['capital_humano', 'gerencia', 'sig'] },
   { to: '/admin',     label: 'Admin',     icon: Settings,  roles: ['sig'] },
 ]
 

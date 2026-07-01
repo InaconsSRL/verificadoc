@@ -8,6 +8,13 @@ vi.mock('qrcode', () => ({
   }
 }))
 
+vi.mock('./logosEmpresa', () => ({
+  getLogoUrl: vi.fn().mockReturnValue(null),
+  getLogoArrayBuffer: vi.fn().mockResolvedValue(null),
+}))
+
+import { getLogoArrayBuffer } from './logosEmpresa'
+
 vi.mock('docx', async (importOriginal) => {
   const actual = await importOriginal()
   return {
@@ -102,7 +109,7 @@ const mockEmpresa = {
 
 const mockDocBase = {
   id: 'abc-111-222',
-  correlativo: 'INS-CT-2024-0001',
+  correlativo: 'CT-0001-2024',
   tipo: 'CT',
   nombre_trabajador: 'María García',
   cargo: 'Asistente de RRHH',
@@ -124,7 +131,7 @@ describe('generarDocx', () => {
 
   it('CL: builds document without throwing', async () => {
     await generarDocx(
-      { ...mockDocBase, tipo: 'CL', correlativo: 'INS-CL-2024-0001' },
+      { ...mockDocBase, tipo: 'CL', correlativo: 'CL-0001-2024' },
       mockEmpresa
     )
     expect(Packer.toBlob).toHaveBeenCalledOnce()
@@ -134,7 +141,7 @@ describe('generarDocx', () => {
     await generarDocx({
       ...mockDocBase,
       tipo: 'AM',
-      correlativo: 'INS-AM-2024-0001',
+      correlativo: 'AM-0001-2024',
       fecha_falta: '2024-06-01',
       descripcion_falta: 'Llegó tarde reiteradamente.',
     }, mockEmpresa)
@@ -145,7 +152,7 @@ describe('generarDocx', () => {
     await generarDocx({
       ...mockDocBase,
       tipo: 'SU',
-      correlativo: 'INS-SU-2024-0001',
+      correlativo: 'SU-0001-2024',
       fecha_falta: '2024-06-01',
       descripcion_falta: 'Falta grave.',
       dias_suspension: 3,
@@ -158,7 +165,7 @@ describe('generarDocx', () => {
     const spy = vi.spyOn(document.body, 'appendChild')
     await generarDocx(mockDocBase, mockEmpresa)
     const anchor = spy.mock.calls[0][0]
-    expect(anchor.download).toBe('INS-CT-2024-0001.docx')
+    expect(anchor.download).toBe('CT-0001-2024.docx')
   })
 
   it('cleans up the blob URL after download', async () => {
@@ -182,6 +189,19 @@ describe('generarDocx', () => {
         observaciones: '',
       })
     ).resolves.toBeUndefined()
+  })
+
+  it('builds document with proportional logo when PNG buffer is available', async () => {
+    const buf = new ArrayBuffer(24)
+    const view = new DataView(buf)
+    view.setUint32(0, 0x89504e47)
+    view.setUint32(16, 200)
+    view.setUint32(20, 80)
+    getLogoArrayBuffer.mockResolvedValueOnce(buf)
+
+    await generarDocx(mockDocBase, mockEmpresa)
+    expect(Packer.toBlob).toHaveBeenCalledOnce()
+    expect(getLogoArrayBuffer).toHaveBeenCalledWith(mockEmpresa)
   })
 
   // Bad input — crash cases
