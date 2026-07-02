@@ -89,19 +89,42 @@ describe('cambiarRol', () => {
 // ── cambiarActivo ────────────────────────────────────────────
 
 describe('cambiarActivo', () => {
-  it('deactivates another user and shows the inactive badge', async () => {
+  it('deactivates another user after confirming in the modal', async () => {
     mockFetchPerfiles([{ id: OTHER_ID, nombre: 'Juan López', rol: 'capital_humano', activo: true }])
     const { mockUpd, mockEq } = setupUpdate()
 
     render(<Admin />)
     await screen.findByText('Juan López')
 
+    // El botón de la fila abre el modal de confirmación
     fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
+    await screen.findByText('Desactivar usuario')
+    expect(mockUpd).not.toHaveBeenCalled()
+
+    // Confirmar dentro del modal
+    const botones = screen.getAllByRole('button', { name: 'Desactivar' })
+    fireEvent.click(botones[botones.length - 1])
 
     await screen.findByText('Inactivo')
     expect(mockUpd).toHaveBeenCalledWith({ activo: false })
     expect(mockEq).toHaveBeenCalledWith('id', OTHER_ID)
     expect(screen.getByRole('button', { name: 'Activar' })).not.toBeNull()
+  })
+
+  it('cancelling the modal leaves the user active', async () => {
+    mockFetchPerfiles([{ id: OTHER_ID, nombre: 'Juan López', rol: 'capital_humano', activo: true }])
+
+    render(<Admin />)
+    await screen.findByText('Juan López')
+
+    fireEvent.click(screen.getByRole('button', { name: 'Desactivar' }))
+    await screen.findByText('Desactivar usuario')
+    fireEvent.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    // Solo se llamó a supabase para el fetch inicial: ningún update
+    expect(supabase.from).toHaveBeenCalledTimes(1)
+    expect(screen.queryByText('Desactivar usuario')).toBeNull()
+    expect(screen.queryByText('Inactivo')).toBeNull()
   })
 
   it('blocks deactivating your own account', async () => {

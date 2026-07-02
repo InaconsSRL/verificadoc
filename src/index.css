@@ -48,9 +48,13 @@
   --mc-text-base: 14px;
   --mc-text-lg:   18px;
 
+  /* Lienzo del layout island: las superficies blancas flotan sobre él */
+  --mc-color-canvas: #eef0f4;
+
   --mc-font-sans: 'Inter', -apple-system, system-ui, sans-serif;
   --mc-shadow-sm: 0 1px 1px rgba(17, 24, 28, .04), 0 2px 4px rgba(17, 24, 28, .04);
   --mc-shadow-md: 0 2px 4px rgba(17, 24, 28, .05), 0 6px 12px -2px rgba(17, 24, 28, .06);
+  --mc-shadow-island: 0 1px 2px rgba(17, 24, 28, .04), 0 8px 24px -8px rgba(17, 24, 28, .09);
   --mc-ease: cubic-bezier(.4, 0, .2, 1);
   --mc-transition: 180ms var(--mc-ease);
 
@@ -94,13 +98,16 @@ body {
 
 p, h1, h2, h3 { margin: 0; }
 
-/* ── Shell ── */
+/* ── Shell (layout island: sidebar y contenido flotan sobre el lienzo) ── */
 .app-shell {
   display: flex;
   width: 100%;
   height: 100dvh;
   max-height: 100dvh;
   overflow: hidden;
+  background: var(--mc-color-canvas);
+  padding: var(--mc-space-3);
+  gap: var(--mc-space-3);
 }
 
 .app-sidebar {
@@ -109,7 +116,9 @@ p, h1, h2, h3 { margin: 0; }
   display: flex;
   flex-direction: column;
   background: var(--mc-color-surface);
-  border-right: 0.5px solid var(--mc-color-border);
+  border: 0.5px solid var(--mc-color-border);
+  border-radius: var(--mc-radius-xl);
+  box-shadow: var(--mc-shadow-island);
   overflow: hidden;
 }
 
@@ -184,7 +193,7 @@ p, h1, h2, h3 { margin: 0; }
   min-width: 0;
   min-height: 0;
   overflow-y: auto;
-  background: var(--mc-color-bg);
+  background: transparent;
 }
 
 .app-content {
@@ -270,14 +279,13 @@ p, h1, h2, h3 { margin: 0; }
   margin-top: 1px;
 }
 
-/* ── Page header ── */
+/* ── Page header (flota sobre el lienzo, sin línea pegada) ── */
 .page-header {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding-bottom: 20px;
-  margin-bottom: 4px;
-  border-bottom: 1px solid var(--mc-color-border);
+  padding-bottom: 4px;
+  margin-bottom: var(--mc-space-4);
 }
 
 .page-header-top {
@@ -310,12 +318,12 @@ p, h1, h2, h3 { margin: 0; }
   flex-wrap: wrap;
 }
 
-/* ── Cards / panels ── */
+/* ── Cards / panels (islas) ── */
 .card {
   background: var(--mc-color-surface);
-  border: 1px solid var(--mc-color-border);
-  border-radius: var(--mc-radius-lg);
-  box-shadow: var(--mc-shadow-sm);
+  border: 0.5px solid var(--mc-color-border);
+  border-radius: var(--mc-radius-xl);
+  box-shadow: var(--mc-shadow-island);
   padding: var(--mc-space-5);
 }
 
@@ -324,8 +332,8 @@ p, h1, h2, h3 { margin: 0; }
 .panel {
   background: var(--mc-color-surface);
   border: 0.5px solid var(--mc-color-border);
-  border-radius: var(--mc-radius-lg);
-  box-shadow: var(--mc-shadow-sm);
+  border-radius: var(--mc-radius-xl);
+  box-shadow: var(--mc-shadow-island);
   overflow: hidden;
 }
 
@@ -357,7 +365,8 @@ p, h1, h2, h3 { margin: 0; }
   padding: var(--mc-space-3) var(--mc-space-4);
   background: var(--mc-color-surface);
   border: 0.5px solid var(--mc-color-border);
-  border-radius: var(--mc-radius-lg);
+  border-radius: var(--mc-radius-xl);
+  box-shadow: var(--mc-shadow-island);
   min-width: 0;
 }
 
@@ -390,6 +399,64 @@ p, h1, h2, h3 { margin: 0; }
 .kpi-sub {
   font-size: var(--mc-text-xs);
   color: var(--mc-color-text-placeholder);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ── KPI con desglose (popover al hover/click) ── */
+.kpi-pop-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.kpi-card-btn {
+  width: 100%;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+  transition: box-shadow var(--mc-transition), transform var(--mc-transition), border-color var(--mc-transition);
+}
+
+.kpi-card-btn:hover,
+.kpi-card-btn[aria-expanded="true"] {
+  border-color: var(--mc-color-border-strong);
+  box-shadow: 0 2px 4px rgba(17, 24, 28, .06), 0 12px 28px -8px rgba(17, 24, 28, .14);
+  transform: translateY(-1px);
+}
+
+.kpi-popover {
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 60;
+  min-width: 280px;
+  max-width: min(340px, calc(100vw - 32px));
+  background: var(--mc-color-surface);
+  border: 0.5px solid var(--mc-color-border);
+  border-radius: var(--mc-radius-lg);
+  box-shadow: 0 16px 40px -8px rgba(17, 24, 28, .18);
+  padding: var(--mc-space-4);
+  animation: kpi-pop-in .16s var(--mc-ease) both;
+}
+
+.kpi-popover.align-right {
+  left: auto;
+  right: 0;
+}
+
+@keyframes kpi-pop-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.kpi-popover-title {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--mc-color-text-secondary);
+  margin: 0 0 var(--mc-space-3);
 }
 
 /* ── Barras ── */
@@ -864,7 +931,7 @@ p, h1, h2, h3 { margin: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--mc-color-bg);
+  background: var(--mc-color-canvas);
   padding: var(--mc-space-4);
 }
 
@@ -888,7 +955,7 @@ p, h1, h2, h3 { margin: 0; }
   background: var(--mc-color-surface);
   border: 0.5px solid var(--mc-color-border);
   border-radius: var(--mc-radius-xl);
-  box-shadow: var(--mc-shadow-md);
+  box-shadow: var(--mc-shadow-island);
   padding: var(--mc-space-6);
   display: flex;
   flex-direction: column;
@@ -987,13 +1054,13 @@ p, h1, h2, h3 { margin: 0; }
   align-items: center;
   justify-content: center;
   padding: var(--mc-space-4);
-  background: var(--mc-color-bg);
+  background: var(--mc-color-canvas);
 }
 
 /* ── Verificador público ── */
 .verify-page {
   min-height: 100dvh;
-  background: var(--mc-color-bg);
+  background: var(--mc-color-canvas);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -1008,7 +1075,7 @@ p, h1, h2, h3 { margin: 0; }
   background: var(--mc-color-surface);
   border: 0.5px solid var(--mc-color-border);
   border-radius: var(--mc-radius-xl);
-  box-shadow: var(--mc-shadow-md);
+  box-shadow: var(--mc-shadow-island);
   overflow: hidden;
 }
 
@@ -1263,7 +1330,9 @@ p, h1, h2, h3 { margin: 0; }
 .modal-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(0, 0, 0, .2);
+  background: rgba(13, 18, 28, .35);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1275,7 +1344,7 @@ p, h1, h2, h3 { margin: 0; }
   background: var(--mc-color-surface);
   border-radius: var(--mc-radius-xl);
   border: 0.5px solid var(--mc-color-border);
-  box-shadow: var(--mc-shadow-md);
+  box-shadow: 0 24px 48px -12px rgba(17, 24, 28, .22);
   padding: var(--mc-space-6);
   max-width: 440px;
   width: 100%;
@@ -1334,6 +1403,7 @@ p, h1, h2, h3 { margin: 0; }
   .emitir-grid { grid-template-columns: 1fr; }
   .emitir-fields-grid { grid-template-columns: 1fr; }
   .app-sidebar { display: none; }
+  .app-shell { padding: var(--mc-space-2); }
   .app-content { padding: var(--mc-space-4); }
 }
 
@@ -1341,4 +1411,48 @@ p, h1, h2, h3 { margin: 0; }
   .page-header-top { flex-direction: column; }
   .verify-grid { grid-template-columns: 1fr; }
   .filters-row-primary .input-search-wrap { flex: 1 1 100%; }
+}
+
+/* ════════════════════════════════════════════════════════════
+   ACCESIBILIDAD
+   ════════════════════════════════════════════════════════════ */
+
+/* Foco visible por teclado en toda la app (los inputs conservan
+   su estilo propio de :focus) */
+:focus-visible {
+  outline: 2px solid var(--mc-color-accent, #3A6B8A);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.input:focus-visible {
+  outline: none;
+}
+
+/* Usuarios que piden menos movimiento: sin animaciones ni transiciones */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Texto solo para lectores de pantalla */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Inputs del verificador público: 16px evita el zoom automático en iOS */
+.verify-page .input {
+  font-size: 16px;
 }

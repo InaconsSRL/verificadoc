@@ -41,10 +41,8 @@ function mockFetch(data) {
   })
 }
 
-// Los gráficos están plegados por defecto: expandirlos tras el fetch
-async function renderConGraficos() {
-  render(<Estadisticas />)
-  fireEvent.click(await screen.findByRole('button', { name: /ver gráficos/i }))
+async function abrirPopover(nombreBoton) {
+  fireEvent.click(await screen.findByRole('button', { name: nombreBoton }))
 }
 
 beforeEach(() => {
@@ -68,6 +66,16 @@ describe('KPIs', () => {
     expect(within(anulados.parentElement).getByText('1')).not.toBeNull()
   })
 
+  it('shows summary values on the interactive cards without opening them', async () => {
+    mockFetch(DOCS)
+    render(<Estadisticas />)
+
+    await screen.findByText('Tipo más emitido')
+    expect(screen.getByText('CT · 2')).not.toBeNull()
+    expect(screen.getByText('Empresa con más emisiones')).not.toBeNull()
+    expect(screen.getByText('Acme S.A.')).not.toBeNull()
+  })
+
   it('shows the no-data message when data is an empty array', async () => {
     mockFetch([])
     render(<Estadisticas />)
@@ -75,39 +83,46 @@ describe('KPIs', () => {
   })
 })
 
-// ── porTipo ──────────────────────────────────────────────────
+// ── Popover por tipo ─────────────────────────────────────────
 
-describe('porTipo', () => {
-  it('groups documents by tipo with correct counts', async () => {
+describe('popover por tipo', () => {
+  it('opens on click and groups documents by tipo with correct counts', async () => {
     mockFetch(DOCS)
-    await renderConGraficos()
+    render(<Estadisticas />)
+    await abrirPopover(/tipo más emitido/i)
 
-    const heading = await screen.findByText('Por tipo de documento')
-    const section = within(heading.closest('.panel'))
+    const pop = screen.getByRole('region', { name: 'Por tipo de documento' })
+    expect(within(pop).getByText(/^CT ·/)).not.toBeNull()
+    expect(within(pop).getByText(/^CL ·/)).not.toBeNull()
 
-    expect(section.getByText(/^CT ·/)).not.toBeNull()
-    expect(section.getByText(/^CL ·/)).not.toBeNull()
-
-    const nums = section.getAllByText(/^[0-9]+$/).map(el => el.textContent)
+    const nums = within(pop).getAllByText(/^[0-9]+$/).map(el => el.textContent)
     expect(nums).toContain('2')
     expect(nums).toContain('1')
   })
+
+  it('closes with the Escape key', async () => {
+    mockFetch(DOCS)
+    render(<Estadisticas />)
+    await abrirPopover(/tipo más emitido/i)
+
+    fireEvent.keyDown(screen.getByRole('region', { name: 'Por tipo de documento' }), { key: 'Escape' })
+    expect(screen.queryByRole('region', { name: 'Por tipo de documento' })).toBeNull()
+  })
 })
 
-// ── porEmpresa ───────────────────────────────────────────────
+// ── Popover por empresa ──────────────────────────────────────
 
-describe('porEmpresa', () => {
+describe('popover por empresa', () => {
   it('groups by company name with correct counts', async () => {
     mockFetch(DOCS)
-    await renderConGraficos()
+    render(<Estadisticas />)
+    await abrirPopover(/empresa con más emisiones/i)
 
-    const heading = await screen.findByText('Por empresa')
-    const section = within(heading.closest('.panel'))
+    const pop = screen.getByRole('region', { name: 'Por empresa' })
+    expect(within(pop).getByText('Acme S.A.')).not.toBeNull()
+    expect(within(pop).getByText('Beta Corp')).not.toBeNull()
 
-    expect(section.getByText('Acme S.A.')).not.toBeNull()
-    expect(section.getByText('Beta Corp')).not.toBeNull()
-
-    const nums = section.getAllByText(/^[0-9]+$/).map(el => el.textContent)
+    const nums = within(pop).getAllByText(/^[0-9]+$/).map(el => el.textContent)
     expect(nums).toContain('2')
     expect(nums).toContain('1')
   })
@@ -116,24 +131,26 @@ describe('porEmpresa', () => {
     mockFetch([
       { tipo: 'CT', estado: 'activo', empresa_id: 'emp-orphan', fecha_emision: '2025-02-10', empresas: null },
     ])
-    await renderConGraficos()
+    render(<Estadisticas />)
+    await abrirPopover(/empresa con más emisiones/i)
 
-    const heading = await screen.findByText('Por empresa')
-    expect(within(heading.closest('.panel')).getByText('emp-orphan')).not.toBeNull()
+    const pop = screen.getByRole('region', { name: 'Por empresa' })
+    expect(within(pop).getByText('emp-orphan')).not.toBeNull()
   })
 })
 
-// ── porMes ───────────────────────────────────────────────────
+// ── Popover por mes ──────────────────────────────────────────
 
-describe('porMes', () => {
+describe('popover por mes', () => {
   it('places counts in the correct month buckets', async () => {
     mockFetch(DOCS)
-    await renderConGraficos()
+    render(<Estadisticas />)
+    await abrirPopover(/este mes|mejor mes/i)
 
-    await screen.findByText('Por tipo de documento')
+    const pop = screen.getByRole('region', { name: /Emisiones por mes/ })
 
     function getMonthCount(label) {
-      const monthEl = screen.getByText(label)
+      const monthEl = within(pop).getByText(label)
       return monthEl.parentElement.querySelector('span:first-child').textContent.trim()
     }
 

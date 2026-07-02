@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { useParams, useSearchParams } from 'react-router-dom'
+import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { TIPOS_DOCUMENTO } from '@/lib/documentos'
-import { CheckCircle, XCircle, AlertTriangle, Search } from 'lucide-react'
+import { CheckCircle, XCircle, AlertTriangle, Search, ClipboardCheck } from 'lucide-react'
 import { fmtLong as fmt } from '@/lib/utils'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import BrandLogo from '@/components/BrandLogo'
 
 function Campo({ label, value, full }) {
@@ -15,11 +16,53 @@ function Campo({ label, value, full }) {
   )
 }
 
+// Búsqueda manual: para quien recibe el documento impreso y el QR
+// no escanea (fotocopia, impresión borrosa).
+function BuscarManual({ inicial = '' }) {
+  const navigate = useNavigate()
+  const [codigo, setCodigo] = useState(inicial)
+
+  function handleSubmit(e) {
+    e.preventDefault()
+    const limpio = codigo.trim()
+    if (limpio) navigate(`/v/${encodeURIComponent(limpio)}`)
+  }
+
+  return (
+    <form onSubmit={handleSubmit} style={{ marginTop: '1.25rem', textAlign: 'left' }}>
+      <label className="label" htmlFor="codigo-manual">
+        ¿Tienes el documento impreso? Escribe su número
+      </label>
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          id="codigo-manual"
+          className="input"
+          value={codigo}
+          onChange={e => setCodigo(e.target.value)}
+          placeholder="Ej: CT-0001-2026"
+          autoComplete="off"
+          style={{ flex: 1 }}
+        />
+        <button type="submit" className="btn btn-primary" disabled={!codigo.trim()}>
+          Verificar
+        </button>
+      </div>
+      <p style={{ fontSize: 12, color: 'var(--mc-color-text-secondary, #6b7280)', marginTop: 6 }}>
+        Lo encuentras en el recuadro "Control interno" del documento, como N.° de documento.
+      </p>
+    </form>
+  )
+}
+
 const PASOS = [
   'Buscando en registros…',
   'Verificando autenticidad…',
   'Comprobando vigencia…',
 ]
+
+// Respetar la preferencia del sistema: sin animación de verificación
+const REDUCE_MOTION = typeof window !== 'undefined'
+  && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
 
 export default function Verificar() {
   const { uuid }       = useParams()
@@ -29,7 +72,9 @@ export default function Verificar() {
   const [doc,       setDoc]       = useState(null)
   const [fetchDone, setFetchDone] = useState(false)
   const [error,     setError]     = useState(false)
-  const [paso,      setPaso]      = useState(0)
+  const [paso,      setPaso]      = useState(REDUCE_MOTION ? PASOS.length : 0)
+
+  useDocumentTitle('Verificar documento')
 
   // Advance animation one step every 550 ms
   useEffect(() => {
@@ -39,6 +84,11 @@ export default function Verificar() {
   }, [paso])
 
   useEffect(() => {
+    // Reiniciar al cambiar de código (búsqueda manual encadenada)
+    setDoc(null)
+    setError(false)
+    setFetchDone(false)
+    setPaso(REDUCE_MOTION ? PASOS.length : 0)
     if (!codigo) { setFetchDone(true); return }
     buscarDocumento()
   }, [codigo])
@@ -106,17 +156,18 @@ export default function Verificar() {
               <div className="empty-state-icon">
                 <Search size={24} color="var(--mc-color-text-placeholder)" />
               </div>
-              <p className="empty-state-title">Código no proporcionado</p>
+              <p className="empty-state-title">Verificar un documento</p>
               <p className="empty-state-text">
-                Escanea el código QR impreso en el documento para verificar su autenticidad.
+                Escanea el código QR impreso en el documento, o escribe su número aquí.
               </p>
+              <BuscarManual />
             </div>
           </div>
         )}
 
         {/* ── Not found ── */}
         {ready && error && codigo && (
-          <div className="verify-card verify-card-result">
+          <div className="verify-card verify-card-result" role="status">
             <div className="empty-state" style={{ padding: '2.5rem 1.5rem' }}>
               <div className="empty-state-icon" style={{ background: 'var(--mc-color-danger-soft)' }}>
                 <AlertTriangle size={26} color="var(--mc-color-danger)" />
@@ -126,8 +177,9 @@ export default function Verificar() {
                 El código <span className="mono" style={{ background: 'var(--mc-color-bg-secondary)', padding: '2px 7px', borderRadius: 4 }}>{codigo}</span> no existe en nuestros registros.
               </p>
               <div className="alert alert-error" style={{ textAlign: 'left' }}>
-                Si crees que es un error, contacta a Capital Humano.
+                Revisa que el código esté bien escrito. Si el problema continúa, contacta a la empresa que emitió el documento.
               </div>
+              <BuscarManual />
             </div>
           </div>
         )}
@@ -136,8 +188,8 @@ export default function Verificar() {
         {ready && doc && (
           <article className="verify-card verify-card-result">
 
-            {/* 1 · Status banner */}
-            <div className={`verify-status ${esActivo ? 'valid' : 'invalid'}`}>
+            {/* 1 · Status banner (role=status: lo anuncian los lectores de pantalla) */}
+            <div className={`verify-status ${esActivo ? 'valid' : 'invalid'}`} role="status">
               <div className="verify-status-icon">
                 {esActivo
                   ? <CheckCircle size={44} color="#fff" strokeWidth={1.5} />
@@ -150,7 +202,10 @@ export default function Verificar() {
               <p className="verify-status-emisor">
                 {esActivo
                   ? <>Emitido por <strong>{doc.empresas?.razon_social ?? '—'}</strong>{doc.empresas?.ruc ? ` · RUC ${doc.empresas.ruc}` : ''}</>
-                  : 'Este documento ha sido anulado y ya no tiene validez legal.'
+                  : <>
+                      Este documento ha sido anulado y ya no tiene validez legal.
+                      {doc.empresas?.razon_social && <> Ante cualquier duda, contacte a <strong>{doc.empresas.razon_social}</strong>.</>}
+                    </>
                 }
               </p>
             </div>
@@ -162,6 +217,11 @@ export default function Verificar() {
                 <div>
                   <p className="verify-field-label">Tipo de documento</p>
                   <p className="verify-field-value">{tipoInfo?.label ?? doc.tipo}</p>
+                  {tipoInfo?.descripcion && (
+                    <p style={{ fontSize: 12, color: 'var(--mc-color-text-secondary, #6b7280)', margin: '2px 0 0' }}>
+                      {tipoInfo.descripcion}
+                    </p>
+                  )}
                 </div>
                 <div>
                   <p className="verify-field-label">N.° de documento</p>
@@ -183,7 +243,25 @@ export default function Verificar() {
               </div>
             </div>
 
-            {/* 4 · Footer */}
+            {/* 4 · Checklist de cotejo contra el documento físico */}
+            {esActivo && (
+              <div style={{
+                margin: '0 1.5rem 1.25rem', padding: '12px 16px',
+                background: 'var(--mc-color-info-soft, #eff6ff)',
+                border: '1px solid #bfdbfe', borderRadius: 8,
+                display: 'flex', gap: 10, alignItems: 'flex-start',
+                textAlign: 'left',
+              }}>
+                <ClipboardCheck size={18} color="#1d4ed8" style={{ flexShrink: 0, marginTop: 2 }} />
+                <div style={{ fontSize: 13, color: '#1e40af', lineHeight: 1.55 }}>
+                  <strong style={{ display: 'block', marginBottom: 2 }}>Antes de dar por bueno el documento</strong>
+                  Compruebe que el nombre del trabajador, el cargo, las fechas y el N.° de documento
+                  que ve aquí coincidan exactamente con los del documento impreso que tiene en la mano.
+                </div>
+              </div>
+            )}
+
+            {/* 5 · Footer */}
             <div className="verify-foot">
               <span className="verify-foot-brand">VerificaDoc</span>
               <span className="verify-foot-code">{doc.correlativo}</span>

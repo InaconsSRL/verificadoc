@@ -1,15 +1,20 @@
 import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import { TIPOS_DOCUMENTO } from '@/lib/documentos'
 import { generarDocx } from '@/lib/generarDocx'
-import { Download, ExternalLink, Ban, RefreshCw, Search, X } from 'lucide-react'
-import { fmt } from '@/lib/utils'
+import { Download, ExternalLink, Ban, RefreshCw, Search, X, Eye } from 'lucide-react'
+import { fmt, fmtCorto } from '@/lib/utils'
+import { MOTIVOS_CESE } from '@/lib/documentos'
 import { useToast, Toast } from '@/hooks/useToast'
 import { useEmpresas } from '@/hooks/useEmpresas'
 import { useAuth } from '@/context/AuthContext'
+import { puede } from '@/lib/permisos'
 import Spinner from '@/components/Spinner'
 import PageHeader from '@/components/PageHeader'
 import Estadisticas from '@/components/Estadisticas'
+import Modal from '@/components/Modal'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 
 const TIPO_COLOR = {
   CT: { bg: '#dbeafe', color: '#1e40af' },
@@ -32,49 +37,111 @@ function ModalAnular({ doc, onConfirm, onCancel }) {
   }
 
   return (
-    <div className="modal-backdrop">
-      <div className="modal">
-        <div className="modal-head">
-          <div>
-            <p className="modal-title">Anular documento</p>
-            <p className="modal-sub">Esta acción no se puede deshacer.</p>
-          </div>
-          <button type="button" onClick={onCancel} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--muted-light)', padding: 4, borderRadius: 6 }}>
-            <X size={18} />
-          </button>
-        </div>
-
-        <div className="modal-doc-preview">
-          <p className="cell-mono" style={{ marginBottom: 2 }}>{doc.correlativo}</p>
-          <p style={{ fontSize: 13, color: 'var(--slate)' }}>{doc.nombre_trabajador}</p>
-        </div>
-
-        <div className="field">
-          <label className="label">Motivo de anulación (opcional)</label>
-          <textarea
-            className="input"
-            style={{ minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
-            value={motivo}
-            onChange={e => setMotivo(e.target.value)}
-            placeholder="Ej: Error en los datos, documento duplicado…"
-          />
-        </div>
-
-        <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'flex-end' }}>
-          <button type="button" className="btn" onClick={onCancel} disabled={saving}>
-            Cancelar
-          </button>
-          <button type="button" className="btn btn-danger" onClick={handleConfirm} disabled={saving}
-            style={{ fontWeight: 600, gap: 6 }}>
-            {saving
-              ? <span className="spinner" style={{ borderColor: 'rgba(220,38,38,.2)', borderTopColor: '#dc2626', width: 14, height: 14 }} />
-              : <Ban size={14} />
-            }
-            Confirmar anulación
-          </button>
-        </div>
+    <Modal
+      title="Anular documento"
+      subtitle="Esta acción no se puede deshacer."
+      ariaLabel="Anular documento"
+      onClose={onCancel}
+    >
+      <div className="modal-doc-preview">
+        <p className="cell-mono" style={{ marginBottom: 2 }}>{doc.correlativo}</p>
+        <p style={{ fontSize: 13, color: 'var(--slate)' }}>{doc.nombre_trabajador}</p>
       </div>
+
+      <div className="field">
+        <label className="label" htmlFor="anular-motivo">Motivo de anulación (opcional)</label>
+        <textarea
+          id="anular-motivo"
+          className="input"
+          style={{ minHeight: 70, resize: 'vertical', fontFamily: 'inherit' }}
+          value={motivo}
+          onChange={e => setMotivo(e.target.value)}
+          placeholder="Ej: Error en los datos, documento duplicado…"
+        />
+      </div>
+
+      <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'flex-end' }}>
+        <button type="button" className="btn" onClick={onCancel} disabled={saving}>
+          Cancelar
+        </button>
+        <button type="button" className="btn btn-danger" onClick={handleConfirm} disabled={saving}
+          style={{ fontWeight: 600, gap: 6 }}>
+          {saving
+            ? <span className="spinner" style={{ borderColor: 'rgba(220,38,38,.2)', borderTopColor: '#dc2626', width: 14, height: 14 }} />
+            : <Ban size={14} />
+          }
+          Confirmar anulación
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
+// ── Modal detalle ────────────────────────────────────────────
+function FilaDetalle({ label, value }) {
+  if (value === null || value === undefined || value === '') return null
+  return (
+    <div style={{ display: 'flex', gap: 12, padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: 13 }}>
+      <span style={{ width: 170, flexShrink: 0, color: 'var(--muted)', fontWeight: 600, fontSize: 12 }}>{label}</span>
+      <span style={{ color: 'var(--ink, #1a2733)', whiteSpace: 'pre-wrap', minWidth: 0 }}>{value}</span>
     </div>
+  )
+}
+
+function ModalDetalle({ doc, onClose }) {
+  const tipoInfo    = TIPOS_DOCUMENTO[doc.tipo]
+  const motivoLabel = MOTIVOS_CESE.find(m => m.value === doc.motivo_cese)?.label ?? doc.motivo_cese
+
+  return (
+    <Modal
+      maxWidth={560}
+      ariaLabel={`Detalle del documento ${doc.correlativo}`}
+      onClose={onClose}
+      title={
+        <>
+          {tipoInfo?.label ?? doc.tipo}
+          <span className={`badge badge-${doc.estado}`} style={{ marginLeft: 8 }}>
+            {doc.estado === 'activo' ? 'Activo' : 'Anulado'}
+          </span>
+        </>
+      }
+      subtitle={
+        <>
+          <span className="cell-mono">{doc.correlativo}</span>
+          {tipoInfo?.descripcion && <span style={{ marginLeft: 8 }}>· {tipoInfo.descripcion}</span>}
+        </>
+      }
+    >
+        <div style={{ maxHeight: '60vh', overflowY: 'auto' }}>
+          <FilaDetalle label="Empresa"            value={doc.empresas?.razon_social} />
+          <FilaDetalle label="Trabajador"         value={doc.nombre_trabajador} />
+          <FilaDetalle label="DNI"                value={doc.dni_trabajador} />
+          <FilaDetalle label="Cargo"              value={doc.cargo} />
+          <FilaDetalle label="Área / unidad"      value={doc.campos_extra?.area} />
+          <FilaDetalle label="Fecha de ingreso"   value={doc.fecha_ingreso && fmtCorto(doc.fecha_ingreso)} />
+          <FilaDetalle label="Fecha de cese"      value={doc.fecha_cese && fmtCorto(doc.fecha_cese)} />
+          <FilaDetalle label="Motivo de cese"     value={motivoLabel} />
+          <FilaDetalle label="Tipo de contrato"   value={doc.campos_extra?.tipo_contrato} />
+          <FilaDetalle label="Fecha de la falta"  value={doc.fecha_falta && fmtCorto(doc.fecha_falta)} />
+          <FilaDetalle label="Descripción de la falta" value={doc.descripcion_falta} />
+          <FilaDetalle label="Días de suspensión" value={doc.dias_suspension} />
+          <FilaDetalle label="Inicio suspensión"  value={doc.fecha_inicio_suspension && fmtCorto(doc.fecha_inicio_suspension)} />
+          <FilaDetalle label="Límite descargos"   value={doc.fecha_limite_descargos && fmtCorto(doc.fecha_limite_descargos)} />
+          <FilaDetalle label="Observaciones"      value={doc.campos_extra?.observaciones} />
+          <FilaDetalle label="Fecha de emisión"   value={fmt(doc.fecha_emision)} />
+          <FilaDetalle label="Emitido por"        value={doc.emitido_por_nombre} />
+          {doc.estado === 'anulado' && (
+            <>
+              <FilaDetalle label="Anulado el"        value={doc.anulado_en && fmt(doc.anulado_en)} />
+              <FilaDetalle label="Motivo anulación"  value={doc.motivo_anulacion ?? 'No indicado'} />
+            </>
+          )}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '1rem' }}>
+          <button type="button" className="btn" onClick={onClose}>Cerrar</button>
+        </div>
+    </Modal>
   )
 }
 
@@ -91,6 +158,7 @@ export default function Historial() {
   const [docs,        setDocs]        = useState([])
   const [loading,     setLoading]     = useState(true)
   const [anulando,    setAnulando]    = useState(null)
+  const [detalle,     setDetalle]     = useState(null)
   const [descargando, setDescargando] = useState(null)
   const [filtros,     setFiltros]     = useState(FILTROS_VACIO)
   const [nombreInput, setNombreInput] = useState('')
@@ -98,10 +166,12 @@ export default function Historial() {
   const { toast, showToast } = useToast()
   const { empresas } = useEmpresas()
   const { perfil } = useAuth()
+  useDocumentTitle('Historial')
 
-  // Gerencia consulta en modo solo lectura: puede ver KPIs, tabla y
-  // verificador, pero no anular (el RPC igual lo rechaza en el servidor).
-  const soloLectura = perfil?.rol === 'gerencia'
+  // Sin permiso de anular (gerencia) el historial es solo lectura:
+  // KPIs, tabla, detalle y verificador, sin botón de anulación
+  // (el RPC igual lo rechaza en el servidor).
+  const soloLectura = !puede(perfil?.rol, 'anular')
 
   useEffect(() => {
     fetchDocs()
@@ -114,10 +184,11 @@ export default function Historial() {
       .from('documentos')
       .select(`
         id, correlativo, tipo, estado,
-        nombre_trabajador, cargo, fecha_emision,
+        dni_trabajador, nombre_trabajador, cargo, fecha_emision,
         fecha_ingreso, fecha_cese, fecha_falta,
         descripcion_falta, dias_suspension,
         fecha_inicio_suspension, fecha_limite_descargos, motivo_cese,
+        motivo_anulacion, anulado_en, emitido_por_nombre,
         campos_extra, empresa_id,
         empresas ( id, razon_social, ruc, prefijo )
       `)
@@ -209,7 +280,20 @@ export default function Historial() {
       <Toast toast={toast} />
 
       <PageHeader
-        title="Historial"
+        title={
+          <>
+            Historial
+            {soloLectura && (
+              <span style={{
+                marginLeft: 10, verticalAlign: 'middle',
+                fontSize: 11, fontWeight: 600, color: '#3A6B8A',
+                background: '#e0f2fe', padding: '2px 9px', borderRadius: 99,
+              }}>
+                Solo lectura
+              </span>
+            )}
+          </>
+        }
         subtitle={
           loading
             ? 'Cargando…'
@@ -286,6 +370,11 @@ export default function Historial() {
             <p className="empty-state-text">
               {tienesFiltros ? 'Ningún documento coincide con los filtros aplicados.' : 'Aún no se han emitido documentos.'}
             </p>
+            {!tienesFiltros && puede(perfil?.rol, 'emitir') && (
+              <Link to="/emitir" className="btn btn-primary" style={{ marginTop: '1rem' }}>
+                Emitir el primer documento
+              </Link>
+            )}
           </div>
         ) : (
           <div className="data-table-wrap">
@@ -327,14 +416,22 @@ export default function Historial() {
                       </td>
                       <td>
                         <div style={{ display: 'flex', gap: '.35rem' }}>
+                          <button type="button" className="btn btn-sm"
+                            onClick={() => setDetalle(doc)}
+                            title="Ver detalle del documento"
+                            aria-label={`Ver detalle de ${doc.correlativo}`}>
+                            <Eye size={12} />
+                          </button>
                           <a href={`/v/${doc.id}`} target="_blank" rel="noreferrer"
-                            className="btn btn-sm" title="Ver verificador público">
+                            className="btn btn-sm" title="Ver verificador público"
+                            aria-label={`Abrir verificador público de ${doc.correlativo}`}>
                             <ExternalLink size={12} />
                           </a>
                           <button type="button" className="btn btn-sm"
                             disabled={descargando === doc.id}
                             onClick={() => descargarDoc(doc)}
-                            title="Descargar .docx">
+                            title="Descargar .docx"
+                            aria-label={`Descargar Word de ${doc.correlativo}`}>
                             {descargando === doc.id
                               ? <span className="spinner spinner-dark" style={{ width: 12, height: 12 }} />
                               : <Download size={12} />
@@ -343,7 +440,8 @@ export default function Historial() {
                           {doc.estado === 'activo' && !soloLectura && (
                             <button type="button" className="btn btn-sm btn-danger"
                               onClick={() => setAnulando(doc)}
-                              title="Anular documento">
+                              title="Anular documento"
+                              aria-label={`Anular ${doc.correlativo}`}>
                               <Ban size={12} />
                             </button>
                           )}
@@ -357,6 +455,10 @@ export default function Historial() {
           </div>
         )}
       </div>
+
+      {detalle && (
+        <ModalDetalle doc={detalle} onClose={() => setDetalle(null)} />
+      )}
 
       {anulando && (
         <ModalAnular

@@ -75,6 +75,15 @@ describe('not found', () => {
 
     expect(await screen.findByText('Documento no encontrado', {}, WAIT)).not.toBeNull()
   })
+
+  it('offers a manual code input in the not-found state', async () => {
+    mockRpc({ data: [], error: null })
+    renderVerificador()
+
+    await screen.findByText('Documento no encontrado', {}, WAIT)
+    expect(screen.getByLabelText(/escribe su número/i)).not.toBeNull()
+    expect(screen.getByRole('button', { name: 'Verificar' })).not.toBeNull()
+  })
 })
 
 // ── annulled document ────────────────────────────────────────

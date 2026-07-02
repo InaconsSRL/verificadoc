@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react'
+import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 
 const AuthContext = createContext(null)
@@ -8,6 +8,8 @@ export function AuthProvider({ children }) {
   const [perfil,       setPerfil]       = useState(null)
   const [loading,      setLoading]      = useState(true)
   const [recoveryMode, setRecoveryMode] = useState(false)
+  const userRef        = useRef(null)
+  const ultimoRefresco = useRef(0)
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -42,6 +44,24 @@ export function AuthProvider({ children }) {
     return () => subscription.unsubscribe()
   }, [])
 
+  // Re-lee el perfil sin tocar el estado de carga; usado al navegar
+  // para detectar desactivaciones o cambios de rol en sesiones abiertas.
+  // Throttle de 10 s para no disparar una consulta por cada render.
+  async function refreshPerfil() {
+    const userId = userRef.current?.id
+    if (!userId) return
+    const ahora = Date.now()
+    if (ahora - ultimoRefresco.current < 10_000) return
+    ultimoRefresco.current = ahora
+
+    const { data, error } = await supabase
+      .from('usuarios_perfil')
+      .select('rol, nombre, activo')
+      .eq('id', userId)
+      .single()
+    if (!error) setPerfil(data ?? null)
+  }
+
   async function fetchPerfil(userId) {
     const { data, error } = await supabase
       .from('usuarios_perfil')
@@ -71,8 +91,10 @@ export function AuthProvider({ children }) {
     setRecoveryMode(false)
   }
 
+  userRef.current = user
+
   return (
-    <AuthContext.Provider value={{ user, perfil, loading, recoveryMode, login, logout, updatePassword }}>
+    <AuthContext.Provider value={{ user, perfil, loading, recoveryMode, login, logout, updatePassword, refreshPerfil }}>
       {children}
     </AuthContext.Provider>
   )

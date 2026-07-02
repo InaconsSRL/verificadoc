@@ -151,6 +151,7 @@ Deno.serve(async (req) => {
     id: userId,
     nombre,
     rol,
+    email,
   })
 
   if (insertError) {

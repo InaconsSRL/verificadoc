@@ -1,17 +1,19 @@
 import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import BrandLogo from '@/components/BrandLogo'
 
 const ROL_REDIRECT = {
   capital_humano: '/emitir',
-  gerencia:       '/reportes',
+  gerencia:       '/historial',
   sig:            '/emitir',
 }
 
 export default function Login() {
   const { login, user, perfil, loading } = useAuth()
   const navigate = useNavigate()
+  useDocumentTitle('Iniciar sesión')
 
   const [email,      setEmail]      = useState('')
   const [password,   setPassword]   = useState('')

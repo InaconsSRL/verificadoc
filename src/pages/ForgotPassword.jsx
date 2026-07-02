@@ -1,9 +1,11 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import BrandLogo from '@/components/BrandLogo'
 
 export default function ForgotPassword() {
+  useDocumentTitle('Recuperar contraseña')
   const [email,   setEmail]   = useState('')
   const [busy,    setBusy]    = useState(false)
   const [error,   setError]   = useState('')

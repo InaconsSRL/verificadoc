@@ -1,11 +1,14 @@
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useEmpresas } from '@/hooks/useEmpresas'
 import { TIPOS_DOCUMENTO, MOTIVOS_CESE, TITULOS } from '@/lib/documentos'
 import { hoy, fmtCorto, getVerifyUrl, addDiasHabiles } from '@/lib/utils'
+import { validarFechasEmision } from '@/lib/validacionesEmitir'
+import { renderPlantilla } from '@/lib/plantillas'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { generarDocx } from '@/lib/generarDocx'
 import QRCode from 'qrcode'
-import { Download, CheckCircle, Eye } from 'lucide-react'
+import { Download, CheckCircle, Eye, Copy, AlertTriangle } from 'lucide-react'
 import { getCuerpoDefault, getLugarFechaDefault } from '@/lib/generarDocx'
 import { getLogoUrl } from '@/lib/logosEmpresa'
 import PageHeader from '@/components/PageHeader'
@@ -197,12 +200,62 @@ function CamposEspecificos({ tipo, valores, onChange }) {
   return Comp ? <Comp v={v} set={set} /> : null
 }
 
+// ── Stepper de progreso ─────────────────────────────────────
+
+const ETAPAS = ['Datos del documento', 'Revisar y editar', 'Emitido']
+
+function Stepper({ etapa }) {
+  return (
+    <ol aria-label="Progreso de emisión" style={{
+      display: 'flex', flexWrap: 'wrap', alignItems: 'center',
+      listStyle: 'none', padding: 0, margin: '0 0 1.25rem',
+    }}>
+      {ETAPAS.map((label, i) => {
+        const n      = i + 1
+        const activo = etapa === n
+        const hecho  = etapa > n
+        return (
+          <li key={label} aria-current={activo ? 'step' : undefined}
+            style={{ display: 'flex', alignItems: 'center', gap: 8, marginRight: 16 }}>
+            <span aria-hidden style={{
+              width: 22, height: 22, borderRadius: '50%', flexShrink: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: 11, fontWeight: 700,
+              background: hecho || activo ? 'var(--navy)' : 'var(--gray-100, #f3f4f6)',
+              color: hecho || activo ? '#fff' : 'var(--gray-500, #6b7280)',
+            }}>
+              {hecho ? '✓' : n}
+            </span>
+            <span style={{
+              fontSize: 12, fontWeight: activo ? 700 : 500,
+              color: activo ? 'var(--navy)' : 'var(--gray-500, #6b7280)',
+            }}>
+              {label}
+            </span>
+            {i < ETAPAS.length - 1 && (
+              <span aria-hidden style={{ width: 24, height: 1, background: 'var(--gray-200, #e5e7eb)', marginLeft: 16 }} />
+            )}
+          </li>
+        )
+      })}
+    </ol>
+  )
+}
+
 // ── Vista previa modal ──────────────────────────────────────
 
-function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfirmar, onVolver, guardando, error }) {
-  const set = (k, v) => onChange({ ...editables, [k]: v })
+function VistaPrevia({ tipo, trab, campos, empresa, editables, onConfirmar, onVolver, guardando, error, dupAviso }) {
   const esCTCL = tipo === 'CT' || tipo === 'CL'
   const titulo = TITULOS[tipo] ?? tipo
+  const panelRef = useRef(null)
+
+  useEffect(() => {
+    panelRef.current?.focus()
+  }, [])
+
+  function handleKeyDown(e) {
+    if (e.key === 'Escape' && !guardando) onVolver()
+  }
 
   const dir      = empresa?.direccion?.startsWith('[')    ? null : empresa?.direccion
   const rep      = empresa?.representante?.startsWith('[') ? null : empresa?.representante
@@ -233,7 +286,14 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
       zIndex: 1000, display: 'flex', alignItems: 'flex-start',
       justifyContent: 'center', padding: '20px 16px', overflowY: 'auto',
     }}>
-      <div style={{
+      <div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-label={`Vista previa: ${titulo}`}
+        tabIndex={-1}
+        onKeyDown={handleKeyDown}
+        style={{
         width: '100%', maxWidth: 760, background: '#fff',
         borderRadius: 12, boxShadow: '0 32px 80px rgba(0,0,0,.45)',
         display: 'flex', flexDirection: 'column', marginBottom: 24,
@@ -246,7 +306,7 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
         }}>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.12em', textTransform: 'uppercase', color: '#7BA8C4', marginBottom: 3 }}>
-              Vista previa y editar
+              Vista previa
             </div>
             <div style={{ fontSize: 13, fontWeight: 600, color: '#fff' }}>
               {tipo} · {empresa?.razon_social}
@@ -261,13 +321,30 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
           </button>
         </div>
 
-        {/* ── Edit hint ── */}
+        {/* ── Review hint ── */}
         <div style={{
           padding: '8px 20px', background: '#EFF6FF',
           borderBottom: '1px solid #BFDBFE', fontSize: 12, color: '#1D4ED8',
         }}>
-          Los campos con borde azul son editables. Los datos estructurados (nombre, DNI, fechas) solo se modifican volviendo al formulario.
+          Revisa que todos los datos sean correctos antes de emitir. Para corregir algo, vuelve al formulario.
+          El texto legal proviene de la plantilla vigente y no se edita aquí.
         </div>
+
+        {/* ── Aviso de posible duplicado ── */}
+        {dupAviso && (
+          <div role="alert" style={{
+            padding: '10px 20px', background: '#FFFBEB',
+            borderBottom: '1px solid #FDE68A', fontSize: 12.5, color: '#92400E',
+            display: 'flex', gap: 8, alignItems: 'flex-start',
+          }}>
+            <AlertTriangle size={15} style={{ flexShrink: 0, marginTop: 1 }} />
+            <span>
+              Ya existe un documento <strong>{tipo}</strong> activo para este DNI en esta empresa:{' '}
+              <span className="mono" style={{ fontWeight: 600 }}>{dupAviso.correlativo}</span>
+              {' '}emitido el {fmtCorto(dupAviso.fecha_emision)}. Verifica que no estés duplicando antes de confirmar.
+            </span>
+          </div>
+        )}
 
         {/* ── Document preview ── */}
         <div style={{ padding: '28px 36px', overflowY: 'auto', maxHeight: 'calc(100vh - 200px)' }}>
@@ -337,61 +414,34 @@ function VistaPrevia({ tipo, trab, campos, empresa, editables, onChange, onConfi
             </div>
           )}
 
-          {/* Editable: cuerpo */}
+          {/* Cuerpo del documento (según plantilla vigente, solo lectura) */}
           <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#1D4ED8', display: 'block', marginBottom: 5 }}>
-              Párrafo principal · <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>editable</span>
-            </label>
-            <textarea
-              value={editables.cuerpo}
-              onChange={e => set('cuerpo', e.target.value)}
-              rows={esCTCL ? 4 : 9}
-              style={{
-                width: '100%', fontFamily: 'Georgia, serif', fontSize: 13,
-                lineHeight: 1.75, padding: '10px 12px',
-                border: '2px solid #93C5FD', borderRadius: 6,
-                resize: 'vertical', color: '#1A2733', background: '#F8FBFF',
-                fontVariantNumeric: 'proportional-nums',
-              }}
-            />
+            {editables.cuerpo.split('\n\n').filter(Boolean).map((parrafo, i) => (
+              <p key={i} style={{
+                fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.75,
+                textAlign: 'justify', color: '#1A2733', marginBottom: 10,
+                whiteSpace: 'pre-wrap',
+              }}>
+                {parrafo}
+              </p>
+            ))}
           </div>
 
-          {/* Editable: lugarFecha */}
-          <div style={{ marginBottom: 14 }}>
-            <label style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#1D4ED8', display: 'block', marginBottom: 5 }}>
-              Lugar y fecha · <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>editable</span>
-            </label>
-            <input
-              type="text"
-              value={editables.lugarFecha}
-              onChange={e => set('lugarFecha', e.target.value)}
-              style={{
-                width: '100%', fontFamily: 'Georgia, serif', fontSize: 13,
-                padding: '8px 12px', border: '2px solid #93C5FD',
-                borderRadius: 6, color: '#1A2733', background: '#F8FBFF',
-              }}
-            />
-          </div>
+          {/* Lugar y fecha */}
+          <p style={{ fontFamily: 'Georgia, serif', fontSize: 13, color: '#1A2733', marginBottom: 14 }}>
+            {editables.lugarFecha}
+          </p>
 
-          {/* Editable: observaciones */}
-          <div style={{ marginBottom: 24 }}>
-            <label style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: '#1D4ED8', display: 'block', marginBottom: 4 }}>
-              Observaciones adicionales
-              <span style={{ fontWeight: 400, textTransform: 'none', letterSpacing: 0, marginLeft: 6 }}>· opcional · aparece antes de la firma</span>
-            </label>
-            <textarea
-              value={editables.observaciones}
-              onChange={e => set('observaciones', e.target.value)}
-              rows={3}
-              placeholder="Dejar en blanco si no aplica…"
-              style={{
-                width: '100%', fontFamily: 'Georgia, serif', fontSize: 13,
-                lineHeight: 1.75, padding: '10px 12px',
-                border: '2px solid #93C5FD', borderRadius: 6,
-                resize: 'vertical', color: '#1A2733', background: '#F8FBFF',
-              }}
-            />
-          </div>
+          {/* Observaciones (se ingresan en el formulario) */}
+          {editables.observaciones && (
+            <p style={{
+              fontFamily: 'Georgia, serif', fontSize: 13, lineHeight: 1.75,
+              textAlign: 'justify', color: '#1A2733', marginBottom: 24,
+              whiteSpace: 'pre-wrap',
+            }}>
+              {editables.observaciones}
+            </p>
+          )}
 
           {/* Firma placeholder */}
           <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: 36 }}>
@@ -455,7 +505,7 @@ const TRAB_VACIO = { dni: '', nombre: '', cargo: '', fecha_ingreso: '' }
 export default function Emitir() {
   const { toast, showToast } = useToast()
 
-  const { empresas } = useEmpresas()
+  const { empresas } = useEmpresas({ soloActivas: true })
   const [empresaId, setEmpresaId] = useState('')
   const [tipo,      setTipo]      = useState('')
   const [trab,      setTrab]      = useState(TRAB_VACIO)
@@ -466,26 +516,88 @@ export default function Emitir() {
   const [error,       setError]       = useState('')
   const [vistaPrevia, setVistaPrevia] = useState(false)
   const [editables,   setEditables]   = useState({ cuerpo: '', lugarFecha: '', observaciones: '' })
+  const [dupAviso,    setDupAviso]    = useState(null)
+
+  useDocumentTitle('Emitir documento')
 
   function setT(k, v) { setTrab(prev => ({ ...prev, [k]: v })) }
 
-  function abrirVistaPrevia(e) {
+  // Si el trabajador ya está en el registro maestro, autocompletar
+  // los campos vacíos: mismo nombre en todos sus documentos.
+  async function autocompletarPorDni() {
+    if (!dniValido || !empresaId) return
+    const { data } = await supabase
+      .from('trabajadores')
+      .select('nombre, cargo, fecha_ingreso')
+      .eq('dni', trab.dni)
+      .eq('empresa_id', empresaId)
+      .maybeSingle()
+    if (!data) return
+    let usado = false
+    setTrab(prev => {
+      usado = !prev.nombre || !prev.cargo || !prev.fecha_ingreso
+      return {
+        ...prev,
+        nombre:        prev.nombre        || data.nombre        || '',
+        cargo:         prev.cargo         || data.cargo         || '',
+        fecha_ingreso: prev.fecha_ingreso || data.fecha_ingreso || '',
+      }
+    })
+    if (usado) showToast('Datos del trabajador autocompletados desde el registro.')
+  }
+
+  async function abrirVistaPrevia(e) {
     e.preventDefault()
     const docPreview = {
       tipo,
       nombre_trabajador: trab.nombre,
+      dni_trabajador:    trab.dni,
       cargo:             trab.cargo,
       fecha_ingreso:     trab.fecha_ingreso,
       fecha_emision:     hoy(),
       ...campos,
     }
+
+    // Texto legal desde la plantilla vigente (módulo Plantillas);
+    // si la consulta falla, se usa el texto base del código.
+    let cuerpo
+    try {
+      const { data: plantilla } = await supabase
+        .from('plantillas_documento')
+        .select('cuerpo')
+        .eq('tipo', tipo)
+        .maybeSingle()
+      cuerpo = plantilla?.cuerpo
+        ? renderPlantilla(plantilla.cuerpo, docPreview, empresaSeleccionada)
+        : getCuerpoDefault(tipo, docPreview, empresaSeleccionada)
+    } catch {
+      cuerpo = getCuerpoDefault(tipo, docPreview, empresaSeleccionada)
+    }
+
+    // El texto queda congelado aquí: se guarda con el documento al
+    // emitir, así los cambios de plantilla no afectan lo ya emitido.
     setEditables({
-      cuerpo:       getCuerpoDefault(tipo, docPreview, empresaSeleccionada),
-      lugarFecha:   getLugarFechaDefault(hoy()),
-      observaciones: '',
+      cuerpo,
+      lugarFecha:    getLugarFechaDefault(hoy()),
+      observaciones: campos.observaciones?.trim() ?? '',
     })
     setError('')
+    setDupAviso(null)
     setVistaPrevia(true)
+
+    // Aviso de posible duplicado (best-effort, no bloquea la vista previa)
+    try {
+      const { data } = await supabase
+        .from('documentos')
+        .select('correlativo, fecha_emision')
+        .eq('empresa_id', empresaId)
+        .eq('tipo', tipo)
+        .eq('dni_trabajador', trab.dni)
+        .eq('estado', 'activo')
+        .order('fecha_emision', { ascending: false })
+        .limit(1)
+      if (data?.[0]) setDupAviso(data[0])
+    } catch { /* sin aviso si la consulta falla */ }
   }
 
   async function handleConfirmar() {
@@ -532,8 +644,10 @@ export default function Emitir() {
       const qr = await QRCode.toDataURL(verifyUrl, { width: 160, margin: 1 })
       setQrDataUrl(qr)
 
-      try {
-        await generarDocx({
+      // Payload del Word: se guarda en el resultado para poder
+      // re-descargarlo desde el banner de éxito.
+      const regen = {
+        doc: {
           ...docData,
           tipo,
           nombre_trabajador: trab.nombre,
@@ -543,17 +657,36 @@ export default function Emitir() {
           dni_trabajador:    trab.dni,
           ...campos,
           fecha_limite_descargos: fechaLimite,
-        }, empresaSeleccionada, {
+        },
+        empresa: empresaSeleccionada,
+        extras: {
           cuerpoOverride:     editables.cuerpo      || undefined,
           lugarFechaOverride: editables.lugarFecha  || undefined,
           observaciones:      editables.observaciones?.trim() || undefined,
-        })
+        },
+      }
+
+      try {
+        await generarDocx(regen.doc, regen.empresa, regen.extras)
       } catch (docxErr) {
         console.warn('No se pudo generar el Word:', docxErr)
         showToast('Documento registrado. Si el Word no se descargó, descárgalo desde Historial.', true)
       }
 
-      setResultado({ ...docData, verifyUrl })
+      // Registro maestro de trabajadores: mantiene consistente el
+      // nombre/cargo entre documentos y alimenta el autocompletado.
+      await supabase
+        .from('trabajadores')
+        .upsert({
+          dni:           trab.dni,
+          empresa_id:    empresaId,
+          nombre:        trab.nombre,
+          cargo:         trab.cargo,
+          fecha_ingreso: trab.fecha_ingreso || null,
+          estado:        (tipo === 'CT' || tipo === 'CD') ? 'cesado' : 'activo',
+        }, { onConflict: 'dni,empresa_id' })
+
+      setResultado({ ...docData, verifyUrl, regen })
       setVistaPrevia(false)
       setTrab(TRAB_VACIO)
       setCampos({})
@@ -574,6 +707,25 @@ export default function Emitir() {
   const logoEmpresa         = empresaSeleccionada ? getLogoUrl(empresaSeleccionada) : null
   const listo = empresaId && tipo
   const dniValido = /^\d{8}$/.test(trab.dni)
+  const erroresFechas = listo ? validarFechasEmision(tipo, trab, campos) : []
+  const etapa = resultado && !vistaPrevia ? 3 : vistaPrevia ? 2 : 1
+
+  async function copiarEnlace() {
+    try {
+      await navigator.clipboard.writeText(resultado.verifyUrl)
+      showToast('Enlace de verificación copiado.')
+    } catch {
+      showToast('No se pudo copiar. Copia el enlace manualmente.', true)
+    }
+  }
+
+  async function volverADescargar() {
+    try {
+      await generarDocx(resultado.regen.doc, resultado.regen.empresa, resultado.regen.extras)
+    } catch {
+      showToast('No se pudo generar el Word. Descárgalo desde Historial.', true)
+    }
+  }
 
   return (
     <div>
@@ -583,6 +735,8 @@ export default function Emitir() {
         title="Emitir documento"
         subtitle="Genera un documento laboral oficial con correlativo y código QR verificable."
       />
+
+      <Stepper etapa={etapa} />
 
       {/* Banner de éxito */}
       {resultado && (
@@ -603,8 +757,18 @@ export default function Emitir() {
                 Ver verificador →
               </a>
             </p>
+            <div style={{ display: 'flex', gap: 8, marginTop: '.75rem', flexWrap: 'wrap' }}>
+              <button type="button" className="btn btn-sm" onClick={copiarEnlace}>
+                <Copy size={12} /> Copiar enlace de verificación
+              </button>
+              {resultado.regen && (
+                <button type="button" className="btn btn-sm" onClick={volverADescargar}>
+                  <Download size={12} /> Volver a descargar el Word
+                </button>
+              )}
+            </div>
             {qrDataUrl && (
-              <img src={qrDataUrl} alt="QR" style={{ width: 80, height: 80, marginTop: '.75rem', borderRadius: 4, border: '1px solid #bbf7d0' }} />
+              <img src={qrDataUrl} alt={`Código QR de verificación del documento ${resultado.correlativo}`} style={{ width: 80, height: 80, marginTop: '.75rem', borderRadius: 4, border: '1px solid #bbf7d0' }} />
             )}
           </div>
           <button
@@ -621,11 +785,11 @@ export default function Emitir() {
           campos={campos}
           empresa={empresaSeleccionada}
           editables={editables}
-          onChange={setEditables}
           onConfirmar={handleConfirmar}
           onVolver={() => { setVistaPrevia(false); setError('') }}
           guardando={emitiendo}
           error={error}
+          dupAviso={dupAviso}
         />
       )}
 
@@ -714,6 +878,7 @@ export default function Emitir() {
                   <input
                     className="input" value={trab.dni}
                     onChange={e => setT('dni', e.target.value.replace(/\D/g, ''))}
+                    onBlur={autocompletarPorDni}
                     placeholder="12345678"
                     inputMode="numeric"
                     maxLength={8}
@@ -763,14 +928,37 @@ export default function Emitir() {
               {/* Campos específicos del tipo */}
               <CamposEspecificos tipo={tipo} valores={campos} onChange={setCampos} />
 
+              {/* Observaciones (aparecen antes de la firma en el documento) */}
+              <div className="field">
+                <label className="label" htmlFor="emitir-observaciones">
+                  Observaciones adicionales
+                  <span style={{ fontWeight: 400, color: 'var(--gray-400)', marginLeft: 6 }}>· opcional · aparecen antes de la firma</span>
+                </label>
+                <textarea
+                  id="emitir-observaciones"
+                  className="input"
+                  value={campos.observaciones ?? ''}
+                  onChange={e => setCampos({ ...campos, observaciones: e.target.value })}
+                  rows={2}
+                  placeholder="Dejar en blanco si no aplica…"
+                  style={{ resize: 'vertical', fontFamily: 'inherit' }}
+                />
+              </div>
+
               {error && (
                 <div className="alert alert-error" style={{ marginBottom: '1rem' }}>{error}</div>
+              )}
+
+              {erroresFechas.length > 0 && (
+                <div className="alert alert-error" role="alert" style={{ marginBottom: '1rem' }}>
+                  {erroresFechas.map(msg => <div key={msg}>{msg}</div>)}
+                </div>
               )}
 
               <button
                 type="submit"
                 className="btn btn-primary btn-lg"
-                disabled={!dniValido}
+                disabled={!dniValido || erroresFechas.length > 0}
                 style={{ width: '100%', justifyContent: 'center', gap: 8 }}
               >
                 <Eye size={16} /> Vista previa y editar

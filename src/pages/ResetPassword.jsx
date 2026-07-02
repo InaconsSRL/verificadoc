@@ -2,11 +2,13 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 import { KeyRound, Eye, EyeOff, CheckCircle } from 'lucide-react'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import BrandLogo from '@/components/BrandLogo'
 
 export default function ResetPassword() {
   const { updatePassword, logout, loading, recoveryMode } = useAuth()
   const navigate = useNavigate()
+  useDocumentTitle('Nueva contraseña')
 
   const [password,  setPassword]  = useState('')
   const [confirm,   setConfirm]   = useState('')

@@ -2,11 +2,21 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import { crearUsuario } from '@/lib/usuarios'
 import { useAuth } from '@/context/AuthContext'
-import { RefreshCw, UserPlus } from 'lucide-react'
+import { RefreshCw, UserPlus, Users, Building2, History, UserX } from 'lucide-react'
 import { useToast, Toast } from '@/hooks/useToast'
 import Spinner from '@/components/Spinner'
 import PageHeader from '@/components/PageHeader'
+import Modal from '@/components/Modal'
+import AdminEmpresas from '@/components/AdminEmpresas'
+import AdminActividad from '@/components/AdminActividad'
+import { useDocumentTitle } from '@/hooks/useDocumentTitle'
 import { ROLES } from '@/lib/documentos'
+
+const TABS = [
+  { id: 'usuarios',  label: 'Usuarios',  icon: Users },
+  { id: 'empresas',  label: 'Empresas',  icon: Building2 },
+  { id: 'actividad', label: 'Actividad', icon: History },
+]
 
 const ROL_STYLE = {
   capital_humano: { bg: '#dbeafe', color: '#1d4ed8', dot: '#3b82f6' },
@@ -21,11 +31,11 @@ const PERMISOS = [
   },
   {
     rol: 'gerencia',
-    items: ['Ver historial y estadísticas (solo lectura)'],
+    items: ['Ver historial y estadísticas (solo lectura)', 'Editar plantillas de documentos'],
   },
   {
     rol: 'sig',
-    items: ['Acceso total al sistema', 'Emitir y anular documentos', 'Ver historial y estadísticas', 'Administrar usuarios'],
+    items: ['Acceso total al sistema', 'Emitir y anular documentos', 'Editar plantillas', 'Administrar usuarios y empresas'],
   },
 ]
 
@@ -47,6 +57,41 @@ function RolBadge({ rol }) {
 
 const FORM_INICIAL = { nombre: '', email: '', password: '', rol: 'capital_humano' }
 
+// ── Modal de confirmación de desactivación ──────────────────
+function ModalDesactivar({ perfil, onConfirm, onCancel, saving }) {
+  return (
+    <Modal
+      maxWidth={420}
+      title="Desactivar usuario"
+      subtitle="Podrás reactivarlo en cualquier momento."
+      ariaLabel={`Desactivar a ${perfil.nombre}`}
+      onClose={onCancel}
+    >
+      <div className="modal-doc-preview">
+        <p style={{ fontWeight: 600, marginBottom: 2 }}>{perfil.nombre}</p>
+        {perfil.email && <p style={{ fontSize: 13, color: 'var(--slate)' }}>{perfil.email}</p>}
+      </div>
+
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '0 0 1rem' }}>
+        Perderá el acceso de inmediato: no podrá emitir, consultar el historial ni entrar al panel.
+        El cambio queda registrado en la pestaña Actividad.
+      </p>
+
+      <div style={{ display: 'flex', gap: '.75rem', justifyContent: 'flex-end' }}>
+        <button type="button" className="btn" onClick={onCancel} disabled={saving}>Cancelar</button>
+        <button type="button" className="btn btn-danger" onClick={onConfirm} disabled={saving}
+          style={{ fontWeight: 600, gap: 6 }}>
+          {saving
+            ? <span className="spinner" style={{ borderColor: 'rgba(220,38,38,.2)', borderTopColor: '#dc2626', width: 14, height: 14 }} />
+            : <UserX size={14} />
+          }
+          Desactivar
+        </button>
+      </div>
+    </Modal>
+  )
+}
+
 export default function Admin() {
   const { user }  = useAuth()
   const [perfiles, setPerfiles] = useState([])
@@ -55,7 +100,10 @@ export default function Admin() {
   const [form,     setForm]     = useState(FORM_INICIAL)
   const [creando,  setCreando]  = useState(false)
   const [showForm, setShowForm] = useState(false)
+  const [tab,      setTab]      = useState('usuarios')
+  const [confirmando, setConfirmando] = useState(null)
   const { toast, showToast } = useToast()
+  useDocumentTitle('Administración')
 
   useEffect(() => { fetchPerfiles() }, [])
 
@@ -63,7 +111,7 @@ export default function Admin() {
     setLoading(true)
     const { data } = await supabase
       .from('usuarios_perfil')
-      .select('id, nombre, rol, activo')
+      .select('id, nombre, email, rol, activo')
       .order('nombre')
     setPerfiles(data ?? [])
     setLoading(false)
@@ -128,6 +176,7 @@ export default function Admin() {
       return
     }
     setPerfiles(prev => prev.map(p => p.id === id ? { ...p, activo } : p))
+    setConfirmando(null)
     showToast(activo
       ? 'Usuario activado: recupera el acceso al sistema.'
       : 'Usuario desactivado: ya no puede emitir ni consultar documentos.')
@@ -146,15 +195,48 @@ export default function Admin() {
 
       <PageHeader
         title="Administración"
-        subtitle="Gestión de usuarios y roles del sistema"
+        subtitle="Usuarios, empresas y actividad del sistema"
       >
-        <button type="button" className="btn" onClick={fetchPerfiles}>
-          <RefreshCw size={14} /> Actualizar
-        </button>
+        {tab === 'usuarios' && (
+          <button type="button" className="btn" onClick={fetchPerfiles}>
+            <RefreshCw size={14} /> Actualizar
+          </button>
+        )}
       </PageHeader>
 
       <Toast toast={toast} />
 
+      {/* Pestañas */}
+      <div style={{
+        display: 'flex', gap: 4, marginBottom: '1.25rem',
+        borderBottom: '1px solid var(--gray-200, #e5e7eb)',
+      }}>
+        {TABS.map(({ id, label, icon: Icon }) => (
+          <button
+            key={id}
+            type="button"
+            onClick={() => setTab(id)}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6,
+              padding: '.55rem .9rem', fontSize: 13, fontFamily: 'inherit',
+              fontWeight: tab === id ? 700 : 500,
+              color: tab === id ? 'var(--navy, #0D1F35)' : 'var(--muted, #6b7280)',
+              background: 'none', border: 'none', cursor: 'pointer',
+              borderBottom: tab === id ? '2px solid var(--navy, #0D1F35)' : '2px solid transparent',
+              marginBottom: -1,
+            }}
+          >
+            <Icon size={15} strokeWidth={1.75} />
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'empresas' && <AdminEmpresas showToast={showToast} />}
+      {tab === 'actividad' && <AdminActividad showToast={showToast} />}
+
+      {tab === 'usuarios' && (
+      <>
       {/* Permisos por rol */}
       <div className="admin-permisos">
         {PERMISOS.map(({ rol, items }) => {
@@ -335,8 +417,8 @@ export default function Admin() {
                         </span>
                       )}
                     </div>
-                    <p style={{ margin: '1px 0 0', fontSize: 11, color: '#9ca3af', fontFamily: 'monospace' }}>
-                      {p.id.slice(0, 8)}…
+                    <p style={{ margin: '1px 0 0', fontSize: 11, color: '#9ca3af' }}>
+                      {p.email ?? <span style={{ fontFamily: 'monospace' }}>{p.id.slice(0, 8)}…</span>}
                     </p>
                   </div>
 
@@ -364,7 +446,7 @@ export default function Admin() {
                       type="button"
                       className="btn btn-sm"
                       disabled={isMe || saving === p.id}
-                      onClick={() => cambiarActivo(p.id, inactivo)}
+                      onClick={() => inactivo ? cambiarActivo(p.id, true) : setConfirmando(p)}
                       title={inactivo ? 'Reactivar acceso' : 'Desactivar acceso'}
                       style={{
                         opacity: isMe ? .45 : 1,
@@ -387,6 +469,17 @@ export default function Admin() {
           </div>
         )}
       </div>
+
+      {confirmando && (
+        <ModalDesactivar
+          perfil={confirmando}
+          saving={saving === confirmando.id}
+          onConfirm={() => cambiarActivo(confirmando.id, false)}
+          onCancel={() => setConfirmando(null)}
+        />
+      )}
+      </>
+      )}
 
     </div>
   )

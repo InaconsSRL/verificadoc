@@ -1,8 +1,16 @@
-import { Navigate } from 'react-router-dom'
+import { useEffect } from 'react'
+import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
 
 export default function RutaProtegida({ children, roles }) {
-  const { user, perfil, loading, recoveryMode } = useAuth()
+  const { user, perfil, loading, recoveryMode, refreshPerfil } = useAuth()
+  const location = useLocation()
+
+  // Re-verificar el perfil al navegar: detecta desactivaciones o
+  // cambios de rol sin esperar a que el usuario recargue la página.
+  useEffect(() => {
+    if (user) refreshPerfil?.()
+  }, [location.pathname, user])
 
   if (loading) {
     return (

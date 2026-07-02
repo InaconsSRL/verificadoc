@@ -1,13 +1,15 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '@/context/AuthContext'
-import { LogOut, FileText, Clock, Settings } from 'lucide-react'
+import { LogOut, FileText, Clock, ScrollText, Settings } from 'lucide-react'
 import { ROL_LABEL } from '@/lib/documentos'
+import { PERMISOS } from '@/lib/permisos'
 import BrandLogo from '@/components/BrandLogo'
 
 const NAV_LINKS = [
-  { to: '/emitir',    label: 'Emitir',    icon: FileText,  roles: ['capital_humano', 'sig'] },
-  { to: '/historial', label: 'Historial', icon: Clock,     roles: ['capital_humano', 'gerencia', 'sig'] },
-  { to: '/admin',     label: 'Admin',     icon: Settings,  roles: ['sig'] },
+  { to: '/emitir',     label: 'Emitir',     icon: FileText,   roles: PERMISOS.emitir },
+  { to: '/historial',  label: 'Historial',  icon: Clock,      roles: PERMISOS.historial },
+  { to: '/plantillas', label: 'Plantillas', icon: ScrollText, roles: PERMISOS.plantillas },
+  { to: '/admin',      label: 'Admin',      icon: Settings,   roles: PERMISOS.admin },
 ]
 
 const ICON = { size: 18, strokeWidth: 1.75 }

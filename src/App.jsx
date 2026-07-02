@@ -4,6 +4,7 @@ import { AuthProvider } from '@/context/AuthContext'
 import { useAuth } from '@/context/AuthContext'
 import RutaProtegida from '@/components/RutaProtegida'
 import Layout from '@/components/Layout'
+import { PERMISOS } from '@/lib/permisos'
 
 // Páginas
 import Login         from '@/pages/Login'
@@ -11,6 +12,7 @@ import ForgotPassword from '@/pages/ForgotPassword'
 import ResetPassword from '@/pages/ResetPassword'
 import Emitir        from '@/pages/Emitir'
 import Historial     from '@/pages/Historial'
+import Plantillas    from '@/pages/Plantillas'
 import Admin         from '@/pages/Admin'
 import Verificar     from '@/pages/Verificar'
 import SinAcceso     from '@/pages/SinAcceso'
@@ -53,7 +55,7 @@ export default function App() {
             </RutaProtegida>
           }>
             <Route path="/emitir" element={
-              <RutaProtegida roles={['capital_humano', 'sig']}>
+              <RutaProtegida roles={PERMISOS.emitir}>
                 <Emitir />
               </RutaProtegida>
             } />
@@ -61,7 +63,7 @@ export default function App() {
             {/* Historial incluye las estadísticas (antes módulo Reportes);
                 gerencia entra en modo solo lectura */}
             <Route path="/historial" element={
-              <RutaProtegida roles={['capital_humano', 'gerencia', 'sig']}>
+              <RutaProtegida roles={PERMISOS.historial}>
                 <Historial />
               </RutaProtegida>
             } />
@@ -69,8 +71,14 @@ export default function App() {
             {/* Compatibilidad con enlaces guardados al módulo anterior */}
             <Route path="/reportes" element={<Navigate to="/historial" replace />} />
 
+            <Route path="/plantillas" element={
+              <RutaProtegida roles={PERMISOS.plantillas}>
+                <Plantillas />
+              </RutaProtegida>
+            } />
+
             <Route path="/admin" element={
-              <RutaProtegida roles={['sig']}>
+              <RutaProtegida roles={PERMISOS.admin}>
                 <Admin />
               </RutaProtegida>
             } />
